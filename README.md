@@ -42,7 +42,15 @@ published instruments. The endpoint is fixed and read-only.
 Real view is the default. It reads map metadata locally and displays the game's
 map image directly when a valid generation is available. The image keeps its
 native aspect ratio. No live player or other object markers are displayed;
-live sightings, chat, awards and out-of-action status are unavailable.
+awards and out-of-action status are unavailable.
+Read-only game chat is local and kept in memory. The game provides no message
+timestamps: buffered messages present at connection are shown undated and do
+not generate sightings. After connection, supported English target radio
+callouts create local reports with the time Wolf Pack received them. Reports
+show only supplied grid and altitude, not an exact map position. Other
+languages and arbitrary chat are not parsed. On temporary failure, previous
+messages and reports remain historical while chat retries. Reports clear on
+known map changes, game-reported invalid map, ID restart, or disconnect.
 Own-aircraft readings appear after connecting the game, even without a squad.
 The device-local **Share flight instruments with squad** setting defaults on:
 when both game and squad are connected, allowlisted instruments are published.
@@ -71,6 +79,8 @@ not used. The squad name is a local label, not the bearer invite or room key.
   Call `watchTelemetry` only from an explicit game-connection gesture.
 - `src/client/map.ts` polls only map metadata after connecting. The browser
   loads `/map.img?gen=N` in an ordinary image element, without CORS or canvas.
+- `src/client/chat.ts` polls the fixed `/gamechat?lastId=N` endpoint only after
+  connecting, and parses supported English target callouts locally.
 - `src/client/squad.ts`: `inviteKey`, `inviteUrl`, and `connectSquad` provide
   connection status, room events, publication and close. `src/shared/protocol.ts`
   defines messages and the allowlisted telemetry shape.
@@ -85,8 +95,10 @@ not used. The squad name is a local label, not the bearer invite or room key.
 
 ## Privacy and browser limits
 
-Only `/state`, `/indicators`, `/map_info.json` and the map image are requested
-from `127.0.0.1:8111`; map-object, chat and opponent endpoints are not requested.
+Only `/state`, `/indicators`, `/map_info.json`, `/gamechat` and the map image
+are requested from `127.0.0.1:8111`; map-object and opponent endpoints are not requested.
+Chat and derived sightings stay in the browser's memory, are never sent to the
+squad or server, and are cleared on disconnect or entering sample view.
 The normalizer and relay allowlist own-aircraft instrument fields. Missing,
 invalid or non-finite values are ignored. Game variants and aircraft expose different fields, and a
 `valid` response is not proof that a player is in a battle.

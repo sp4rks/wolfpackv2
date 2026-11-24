@@ -4,6 +4,7 @@ import { createRoomKey, isRoomKey, parseClientMessage } from "../src/shared/prot
 import { inviteKey, inviteUrl } from "../src/client/squad.ts";
 import { addHistory, altitude, bearing, climb, climbAngle, defaults, emptyHistories, preferences, speed, temperature } from "../src/client/derived.ts";
 import { sampleOwn } from "../src/client/sample.ts";
+import { normalizeChat, parseSighting, stripGameColors } from "../src/client/chat.ts";
 import { mapGeneration } from "../src/client/map.ts";
 
 describe("dashboard readings and settings", () => {
@@ -106,5 +107,36 @@ describe("protocol", () => {
       sample: { aircraft: null, iasKph: 100, tasKph: null, altitudeM: null, climbMps: null, headingDeg: null, throttlePct: null, oilTempC: null, waterTempC: null, propPitch: null, manifoldPressure: null },
     });
     expect(parseClientMessage('{"type":"telemetry","sample":null}')).toEqual({ type: "telemetry", sample: null });
+  });
+});
+
+describe("game chat reports", () => {
+  const message = (msg: string, extra = {}) => ({ id: 1, msg, sender: "Scout", channel: "Team", enemy: false, receivedAt: 100, ...extra });
+  test("recognizes only documented target callouts and preserves full names", () => {
+    for (const prefix of ["I'm attacking", "Assaulting", "Starting combat with", "Engaging with", "Attack", "Destroy", "Eliminate", "Someone, attack"]) {
+      expect(parseSighting(message(`${prefix} =V3PER= *BlazingTiger552(F4U)!`))?.player).toBe("=V3PER= *BlazingTiger552");
+    }
+    expect(parseSighting(message("Engaging with Canniballistic(P-40F)! [D4, alt. 4200 m]"))).toMatchObject({ grid: "D4", altitudeM: 4200, reporter: "Scout" });
+    expect(parseSighting(message("Someone, attack Abscon (P-40F)!"))).toMatchObject({ player: "Abscon", grid: null, altitudeM: null });
+    expect(parseSighting(message("Attack Ace(Plane (Mk II))! <color=@red>[B4, alt. 2,100 ft]</color>"))).toMatchObject({ aircraft: "Plane (Mk II)", grid: "B4", altitudeM: 640.08 });
+    expect(parseSighting(message("Attack Ace(Plane)! [B4, alt. +2 100 m]"))?.altitudeM).toBe(2100);
+    expect(parseSighting(message("Attack Ace(Plane)! [B4, alt. -1 000 ft]"))?.altitudeM).toBe(-304.8);
+    expect(parseSighting(message("Attack Ace(Plane)! [B4, alt. 12 34 m]"))?.altitudeM).toBeNull();
+    expect(parseSighting(message("Attack Ace(Plane)! [B4, alt. rubbish]"))).toMatchObject({ grid: "B4", altitudeM: null });
+    expect(parseSighting(message("Attack Ace(Plane)! [B4]"))?.grid).toBe("B4");
+    for (const bad of ["Attention to the designated grid square! [F7]", "Someone said Attack Ace(Plane)!", "Attack my target(Plane)!", "Attack Ace(Plane)! trailing", "<script>Attack Ace(Plane)!</script>"]) expect(parseSighting(message(bad))).toBeNull();
+    expect(parseSighting(message("Attack Ace(Plane)!", { enemy: true }))).toBeNull();
+    expect(parseSighting(message("Attack Ace(Plane)!", { receivedAt: null }))).toBeNull();
+  });
+  test("bounds, sorts and deduplicates game messages", () => {
+    expect(normalizeChat([{ id: 2, msg: "two", mode: "team" }, { id: 1, msg: "one", sender: "Scout", enemy: false }, { id: 2, msg: "duplicate" }, { id: -1, msg: "bad" }, { id: 3, msg: "x".repeat(4097) }])).toMatchObject([{ id: 1, sender: "Scout" }, { id: 2, msg: "two", channel: "team" }]);
+    expect(() => normalizeChat({})).toThrow();
+    const backlog = normalizeChat(Array.from({ length: 2500 }, (_, i) => ({ id: 2500 - i, msg: `Message ${i}` })));
+    expect(backlog).toHaveLength(200);
+    expect(backlog[0]?.id).toBe(2301);
+    expect(backlog.at(-1)?.id).toBe(2500);
+  });
+  test("removes game color tags but retains unrelated markup literally", () => {
+    expect(stripGameColors('<color=@red>Hello</color> <img src=x onerror=alert(1)>')).toBe('Hello <img src=x onerror=alert(1)>');
   });
 });

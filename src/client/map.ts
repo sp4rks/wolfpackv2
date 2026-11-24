@@ -10,7 +10,7 @@ export function mapGeneration(value: unknown): number | null {
   const generation = Number(raw);
   return Number.isSafeInteger(generation) && generation >= 0 ? generation : null;
 }
-export type MapUpdate = { status: "ready"; generation: number } | { status: "waiting" | "unreachable" };
+export type MapUpdate = { status: "ready"; generation: number } | { status: "waiting" | "invalid" | "unreachable" };
 
 // Only metadata is fetched as CORS JSON. The image itself is loaded by <img>.
 export function watchMap(onUpdate: (update: MapUpdate) => void): () => void {
@@ -22,8 +22,9 @@ export function watchMap(onUpdate: (update: MapUpdate) => void): () => void {
       const options: RequestInit & { targetAddressSpace: "loopback" } = { signal, targetAddressSpace: "loopback", mode: "cors", credentials: "omit", cache: "no-store", redirect: "error" };
       const response = await fetch(`${GAME_ORIGIN}/map_info.json`, options);
       if (!response.ok) throw new Error("Map metadata unavailable");
-      const generation = mapGeneration(await response.json());
-      if (!stop.signal.aborted) onUpdate(generation === null ? { status: "waiting" } : { status: "ready", generation });
+      const value: unknown = await response.json();
+      const generation = mapGeneration(value);
+      if (!stop.signal.aborted) onUpdate(generation === null ? { status: record(value)?.valid === false ? "invalid" : "waiting" } : { status: "ready", generation });
     } catch {
       if (!stop.signal.aborted) onUpdate({ status: "unreachable" });
     }

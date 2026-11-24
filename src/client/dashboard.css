@@ -1273,6 +1273,11 @@ th {
 .connection-bar p { color: #455e57; font-size: 12px; margin: 7px 0 0; }
 .empty-state { color: #455e57; margin: 4px 18px 18px; }
 .chat li:only-child { display: block; color: #455e57; }
+.chat li, .chat li span, .chat li b, .selected-text, .sightings-table td { overflow-wrap: anywhere; min-width: 0; }
+.chat ul { max-height: 20rem; overflow-y: auto; }
+.selected-text p, .sightings-table td { white-space: normal; }
+.sightings-table button { overflow-wrap: anywhere; }
+.aircraft[hidden] { display: none; }
 @media (max-width: 700px) { .masthead { height: auto; min-height: 60px; gap: 8px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; } .mast-actions { flex-wrap: wrap; gap: 8px; } .connection-bar { margin-bottom: 10px; } }
 @media (min-width: 701px) and (max-width: 1100px) and (orientation: landscape) {
   .page { grid-template-areas: "heading heading" "connection connection" "map instruments" "map chat" "squad sightings"; }

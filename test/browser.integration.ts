@@ -37,6 +37,7 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
     const body = path === "/map_info.json" ? generation === null ? { valid: false } : { map_generation: String(generation) }
       : path === "/state" ? { valid: instrumentValid, "IAS, km/h": 321, "H, m": 1000 }
       : path === "/indicators" ? { valid: instrumentValid, army: "air", type: "p_51", compass: 90 }
+      : path === "/gamechat" ? []
       : null;
     await route.fulfill({ status: body ? 200 : 404, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(body) });
   });
@@ -149,5 +150,122 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("—");
   expect(await pilot.locator("#live-map").isVisible()).toBe(false);
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
-  expect(requests.every(r => ["/state", "/indicators", "/map_info.json", "/map.img"].includes(r.path))).toBe(true);
+  expect(requests.every(r => ["/state", "/indicators", "/map_info.json", "/map.img", "/gamechat"].includes(r.path))).toBe(true);
+}, 90000);
+
+test("chat is opt-in, local, incremental and recovers without inventing sightings", async () => {
+  browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  const context = await browser.newContext();
+  const pilot = await context.newPage(), viewer = await context.newPage();
+  let generation: number | null = 1, failChat = false, failMap = false, stallChat = false, chatStalled = false;
+  let buffer = [{ id: 10, msg: "Attack Old(P-40)!", sender: "Old scout", enemy: false, mode: "Team" }];
+  const requests: Array<{ page: Page; path: string; cursor: string | null }> = [];
+  const sent: string[] = [];
+  pilot.on("websocket", ws => ws.on("framesent", frame => sent.push(String(frame.payload))));
+  await context.route("http://127.0.0.1:8111/**", async route => {
+    const req = route.request(), url = new URL(req.url()), path = url.pathname;
+    requests.push({ page: req.frame().page(), path, cursor: url.searchParams.get("lastId") });
+    if (path === "/map.img") return void await route.fulfill({ status: 200, contentType: "image/png", body: image });
+    if ((path === "/gamechat" && failChat) || (path === "/map_info.json" && failMap)) return void await route.fulfill({ status: 503, headers: { "Access-Control-Allow-Origin": "*" }, body: "unavailable" });
+    if (path === "/gamechat" && stallChat) {
+      chatStalled = true;
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      try { await route.fulfill({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify([{ id: 999, msg: "Attack Stale(Plane)!", sender: "Scout", enemy: false }]) }); } catch { /* stopped request */ }
+      return;
+    }
+    const body = path === "/gamechat" ? [...buffer.filter(m => m.id > Number(url.searchParams.get("lastId"))), ...buffer.filter(m => m.id === Number(url.searchParams.get("lastId")))]
+      : path === "/map_info.json" ? generation === null ? { valid: false } : { valid: true, map_generation: generation }
+      : path === "/state" ? { valid: true, "IAS, km/h": 100 }
+      : path === "/indicators" ? { valid: true, army: "air", type: "plane" } : null;
+    await route.fulfill({ status: body ? 200 : 404, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(body) });
+  });
+  await pilot.goto(origin); await viewer.goto(origin);
+  await pilot.locator("#mode-toggle").click();
+  await pilot.locator('#sighting-rows button[data-report="1"]').click();
+  expect(await pilot.locator(".aircraft").isVisible()).toBe(true);
+  await pilot.locator("#mode-toggle").click();
+  expect(await pilot.locator(".aircraft").isVisible()).toBe(false);
+  await pilot.locator("#enter").click(); await waitText(pilot, "#squad-status", "Connected.");
+  await viewer.goto((await pilot.locator("#invite").getAttribute("href"))!); await viewer.locator("#enter").click(); await waitText(viewer, "#squad-status", "Connected.");
+  expect(requests.length).toBe(0);
+  await pilot.locator("#share").click();
+  await waitText(pilot, "#chat-list", "Old(P-40)");
+  expect(await pilot.locator("#chat-list time").first().textContent()).toBe("—");
+  expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
+  await waitText(pilot, "#sighting-empty", "Waiting for a new English named target callout");
+  expect(requests.find(r => r.path === "/gamechat")?.cursor).toBe("0");
+  buffer.push({ id: 11, msg: "<img src=x onerror=alert(1)> hello", sender: "<Scout>", enemy: false, mode: "Team" },
+    { id: 12, msg: "Engaging with Canniballistic(P-40F)! <color=@red>[D4, alt. 4 200 m]</color>", sender: "Scout", enemy: false, mode: "Team" },
+    { id: 13, msg: "Destroy =V3PER= *BlazingTiger552(F4U)!", sender: "Wing", enemy: false, mode: "Team" },
+    { id: 14, msg: "Attention to the designated grid square! [F7]", sender: "Wing", enemy: false, mode: "Team" },
+    { id: 15, msg: "Attack Enemy(Plane)!", sender: "Enemy", enemy: true, mode: "All" });
+  await waitText(pilot, "#sighting-rows", "BlazingTiger552");
+  expect(await pilot.locator("#sighting-rows tr").count()).toBe(2);
+  expect(await pilot.locator("#chat-list img").count()).toBe(0);
+  expect(await pilot.locator("#chat-list").textContent()).toContain("<img src=x onerror=alert(1)>");
+  expect(await pilot.locator("#chat-list").textContent()).toContain("<Scout>");
+  expect(await pilot.locator("#chat-list").textContent()).toContain("[D4, alt. 4 200 m]");
+  expect(await pilot.locator("#chat-list").textContent()).not.toContain("<color");
+  expect(await pilot.locator("#chat-list").getAttribute("tabindex")).toBe("0");
+  expect(requests.some(r => r.path === "/gamechat" && r.cursor === "10")).toBe(true);
+  await pilot.getByRole("button", { name: "Canniballistic" }).click();
+  expect(await pilot.locator(".aircraft").isVisible()).toBe(false);
+  expect(await pilot.locator("#selected-grid").textContent()).toBe("D4");
+  expect(await pilot.locator("#selected-reporter").textContent()).toContain("Scout");
+  await pilot.getByRole("button", { name: "Canniballistic" }).focus();
+  await pilot.waitForTimeout(1200);
+  expect(await pilot.evaluate(() => (document.activeElement as HTMLElement)?.textContent)).toBe("Canniballistic");
+  buffer.push({ id: 16, msg: "Attack Canniballistic(P-51)! <color=red>[B4, alt. 2,100 ft]</color>", sender: "Wing", enemy: false, mode: "Team" });
+  await waitText(pilot, "#selected-aircraft", "P-51");
+  expect(await pilot.locator("#selected-grid").textContent()).toBe("B4");
+  expect(await pilot.locator("#selected-reporter").textContent()).toContain("Wing");
+  expect(await pilot.locator("#sighting-rows tr").count()).toBe(2);
+  expect(await viewer.locator("#chat-list").textContent()).not.toContain("Canniballistic");
+  expect(sent.join(" ")).not.toContain("Canniballistic");
+  expect(requests.some(r => r.page === viewer)).toBe(false);
+  failMap = true; failChat = true;
+  await waitText(pilot, "#chat-subtitle", "retrying");
+  await waitText(pilot, "#map-status", "Retrying");
+  expect(await pilot.locator("#sighting-rows tr").count()).toBe(2);
+  failMap = false; failChat = false;
+  await waitText(pilot, "#chat-subtitle", "initial history is undated");
+  expect(requests.filter(r => r.path === "/gamechat" && r.cursor === "0").length).toBeGreaterThanOrEqual(2);
+  expect(await pilot.locator("#sighting-rows tr").count()).toBe(2);
+  failChat = true; await waitText(pilot, "#chat-subtitle", "retrying");
+  buffer = [{ id: 1, msg: "Attack Previous(Plane)!", sender: "Scout", enemy: false, mode: "Team" }];
+  failChat = false;
+  await waitText(pilot, "#chat-list", "Previous(Plane)");
+  expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
+  expect(await pilot.locator("#chat-list time").first().textContent()).toBe("—");
+  buffer.push({ id: 2, msg: "Attack Fresh(Plane)!", sender: "Scout", enemy: false, mode: "Team" });
+  await waitText(pilot, "#sighting-rows", "Fresh");
+  generation = null;
+  await waitText(pilot, "#map-status", "waiting for a valid map");
+  expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
+  buffer.push({ id: 3, msg: "Attack NoMap(Plane)!", sender: "Scout", enemy: false, mode: "Team" });
+  await waitText(pilot, "#sighting-rows", "NoMap");
+  generation = 2;
+  await pilot.waitForFunction(() => (document.querySelector("#live-map") as HTMLImageElement).src.endsWith("?gen=2"));
+  buffer.push({ id: 4, msg: "Attack Next(Plane)!", sender: "Scout", enemy: false, mode: "Team" });
+  await waitText(pilot, "#sighting-rows", "Next");
+  generation = 3;
+  await pilot.waitForFunction(() => (document.querySelector("#live-map") as HTMLImageElement).src.endsWith("?gen=3"));
+  expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
+  stallChat = true;
+  while (!chatStalled) await pilot.waitForTimeout(50);
+  await pilot.locator("#share").click();
+  await pilot.waitForTimeout(2700);
+  expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
+  expect(await pilot.locator("#chat-list").textContent()).toContain("disconnected");
+  expect(await pilot.locator("#chat-list").textContent()).not.toContain("Stale");
+  stallChat = false;
+  await pilot.locator("#share").click(); await waitText(pilot, "#chat-list", "NoMap");
+  await pilot.locator("#mode-toggle").click();
+  const count = requests.length;
+  await pilot.waitForTimeout(2300);
+  expect(requests.length).toBe(count);
+  await pilot.locator("#mode-toggle").click();
+  expect(await pilot.locator("#chat-list").textContent()).toContain("disconnected");
+  expect(requests.every(r => ["/state", "/indicators", "/map_info.json", "/map.img", "/gamechat"].includes(r.path))).toBe(true);
+  await context.close();
 }, 90000);

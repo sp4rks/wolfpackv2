@@ -181,11 +181,11 @@
           <div class="section-head">
             <div>
               <h2 id="sightings-title">Sightings</h2>
-              <p>Last-known positions, not live tracks</p>
+              <p>Local radio reports · not live tracks or map positions</p>
             </div>
             <span class="count" id="report-count">UNAVAILABLE</span>
           </div>
-          <p class="empty-state" id="sighting-empty">Live sightings are unavailable.</p><div class="selected-report" id="selected-report" aria-live="polite" hidden>
+          <p class="empty-state" id="sighting-empty">Connect game to see new English radio callouts.</p><div class="selected-report" id="selected-report" hidden>
             <div class="selected-text">
               <h3>
                 <span id="selected-aircraft">Bf 109 G-6</span>
@@ -194,11 +194,12 @@
               <p>
                 <span id="selected-player">Rook</span>
                 · <span id="selected-altitude">2,100 m</span> ·
-                <span id="selected-age">24 sec ago</span>
+                <span id="selected-age">24 sec ago</span><span id="selected-reporter"></span>
               </p>
             </div>
             <svg
               class="aircraft"
+              hidden
               viewBox="0 0 300 100"
               role="img"
               aria-label="Side profile illustration of selected aircraft"
@@ -261,10 +262,10 @@
           <div class="section-head">
             <div>
               <h2 id="chat-title">Game chat</h2>
-              <p id="chat-subtitle">Read-only · unavailable in real view</p>
+              <p id="chat-subtitle">Read-only · connect game to read local chat</p>
             </div>
           </div>
-          <ul id="chat-list"><li>Game chat is unavailable in real view.</li></ul>
+          <ul id="chat-list" tabindex="0" aria-label="Game chat messages"><li>Game disconnected.</li></ul>
         </section>
       </div>
     </main>
@@ -333,7 +334,7 @@
               ></label
             >
             <label class="sharing-preference"><input type="checkbox" name="shareInstruments"> Share flight instruments with squad
-              <small>On by default. When connected to the game and a squad, your own aircraft instruments are sent to the squad. The map is never shared.</small>
+              <small>On by default. When connected to the game and a squad, your own aircraft instruments are sent to the squad. The map, game chat and sightings stay local and are never shared.</small>
             </label>
           </section>
           <section id="display" hidden>

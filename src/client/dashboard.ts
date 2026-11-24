@@ -3,6 +3,8 @@ import type { Member, ServerMessage, Telemetry } from "../shared/protocol.ts";
 import { connectSquad, inviteKey, inviteUrl } from "./squad.ts";
 import { GAME_ORIGIN, watchTelemetry } from "./telemetry.ts";
 import { watchMap } from "./map.ts";
+import { parseSighting, stripGameColors, watchChat } from "./chat.ts";
+import type { ChatMessage, Sighting } from "./chat.ts";
 import { addHistory, altitude, bearing, choices, climb, climbAngle, climbUnit, defaults, emptyHistories, historyKeys, preferences, speed, speedUnit, temperature, tempUnit } from "./derived.ts";
 import type { Histories, HistoryKey, Preferences } from "./derived.ts";
 import { reports, sampleOwn, sampleSquad } from "./sample.ts";
@@ -26,6 +28,12 @@ let squad: ReturnType<typeof connectSquad> | undefined;
 let generation = 0;
 let stopFeed: (() => void) | undefined;
 let stopMap: (() => void) | undefined;
+let stopChat: (() => void) | undefined;
+let chatStatus: "disconnected" | "connecting" | "live" | "retrying" = "disconnected";
+let chatMessages: ChatMessage[] = [];
+const liveReports = new Map<string, Sighting>();
+let selectedKey: string | null = null;
+let knownMap: number | null = null;
 let mapAt = 0;
 let mapGeneration: number | null = null;
 let imageLoaded = false;
@@ -88,15 +96,43 @@ function renderSquad(): void {
   text("#squad-subtitle", sampleMode ? "Fictional sample instruments and statuses" : `${prefs.squad} · live instruments when shared · out-of-action status unavailable`);
 }
 function renderReports(): void {
-  $("#sighting-rows").innerHTML = sampleMode ? reports.map((r, i) => `<tr data-report="${i}"><td><button type="button" data-report="${i}">${r.player}${r.out ? ' <span class="state-label">Out of action</span>' : ""}</button></td><td data-label="Aircraft">${r.aircraft}</td><td data-label="Location / alt.">${r.grid} · ${r.altitude === null ? "Unknown" : `${altitude(r.altitude, prefs)} ${prefs.altitude}`}</td><td data-label="Age">${r.age}</td></tr>`).join("") : "";
+  const focused = document.activeElement instanceof HTMLButtonElement ? document.activeElement.dataset.target : undefined;
+  const rows = [...liveReports.values()].reverse().sort((a, b) => b.receivedAt - a.receivedAt);
+  $("#sighting-rows").innerHTML = sampleMode ? reports.map((r, i) => `<tr data-report="${i}"><td><button type="button" data-report="${i}">${r.player}${r.out ? ' <span class="state-label">Out of action</span>' : ""}</button></td><td data-label="Aircraft">${r.aircraft}</td><td data-label="Location / alt.">${r.grid} · ${r.altitude === null ? "Unknown" : `${altitude(r.altitude, prefs)} ${prefs.altitude}`}</td><td data-label="Age">${r.age}</td></tr>`).join("") : rows.map(r => `<tr data-target="${escape(r.key)}"><td><button type="button" data-target="${escape(r.key)}">${escape(r.player)}</button></td><td data-label="Aircraft">${escape(r.aircraft)}</td><td data-label="Location / alt.">${escape(r.grid ?? "Unknown")} · ${r.altitudeM === null ? "Unknown" : `${altitude(r.altitudeM, prefs)} ${prefs.altitude}`}</td><td data-label="Age" data-age="${r.receivedAt}"></td></tr>`).join("");
+  if (!sampleMode) {
+    visible("#sighting-empty", rows.length === 0);
+    text("#sighting-empty", chatStatus === "disconnected" ? "Connect game to see new English named target callouts."
+      : chatStatus === "connecting" ? "Connecting to game chat…"
+      : chatStatus === "retrying" ? "Game chat unavailable; retrying for new English named target callouts."
+      : "Waiting for a new English named target callout after connection.");
+    visible("#selected-report", !!selectedKey && liveReports.has(selectedKey));
+    text("#report-count", `${rows.length} REPORT${rows.length === 1 ? "" : "S"}`);
+    if (focused) document.querySelectorAll<HTMLButtonElement>("button[data-target]").forEach(button => { if (button.dataset.target === focused) button.focus(); });
+  }
   updateSelection();
+  if (sampleMode || !selectedKey) updateAges();
 }
 function updateSelection(): void {
-  if (!sampleMode) return;
+  if (!sampleMode) {
+    const r = selectedKey ? liveReports.get(selectedKey) : undefined;
+    visible("#selected-report", !!r);
+    if (!r) return;
+    text("#selected-aircraft", r.aircraft); text("#selected-grid", r.grid ?? "Grid unknown"); text("#selected-player", r.player);
+    text("#selected-altitude", r.altitudeM === null ? "Altitude unknown" : `${altitude(r.altitudeM, prefs)} ${prefs.altitude}`);
+    text("#selected-reporter", ` · Reported by ${r.reporter ?? "unknown"}`);
+    document.querySelectorAll<HTMLElement>("[data-target]").forEach(el => {
+      const active = el.dataset.target === selectedKey;
+      if (el.tagName === "BUTTON") el.setAttribute("aria-pressed", String(active));
+      if (el.tagName === "TR") el.classList.toggle("selected", active);
+    });
+    updateAges();
+    return;
+  }
   const r = reports[selected]!;
   text("#selected-aircraft", r.aircraft); text("#selected-grid", r.grid); text("#selected-player", r.player);
   text("#selected-altitude", r.altitude === null ? "Altitude unknown" : `${altitude(r.altitude, prefs)} ${prefs.altitude}`);
   text("#selected-age", `${r.age === "Age unknown" ? r.age : `${r.age} ago`}${r.out ? " · Out of action" : ""}`);
+  text("#selected-reporter", "");
   $("#aircraft-path").setAttribute("d", r.path);
   $(".aircraft").setAttribute("aria-label", `Side profile illustration of ${r.aircraft}`);
   document.querySelectorAll<HTMLElement>("[data-report]").forEach(el => {
@@ -104,6 +140,23 @@ function updateSelection(): void {
     if (el.tagName === "BUTTON") el.setAttribute("aria-pressed", String(active));
     if (el.tagName === "TR") el.classList.toggle("selected", active);
   });
+}
+function updateAges(): void {
+  if (sampleMode) return;
+  const age = (at: number) => `${Math.max(0, Math.floor((Date.now() - at) / 1000))} sec ago`;
+  document.querySelectorAll<HTMLElement>("[data-age]").forEach(el => { el.textContent = age(Number(el.dataset.age)); });
+  const r = selectedKey ? liveReports.get(selectedKey) : undefined;
+  if (r) text("#selected-age", age(r.receivedAt));
+}
+function clearReports(): void { liveReports.clear(); selectedKey = null; renderReports(); }
+function renderChat(): void {
+  if (sampleMode) {
+    text("#chat-subtitle", "Read-only fictional sample messages");
+    $("#chat-list").innerHTML = "<li><time>14:32</time><b>Moss</b><span>Turning toward the coast.</span></li><li><time>14:31</time><b>Raven</b><span>Contact over the bay, heading north.</span></li><li><time>14:30</time><b>You</b><span>Copy, climbing to meet you.</span></li>";
+    return;
+  }
+  text("#chat-subtitle", chatStatus === "disconnected" ? "Read-only · connect game to read local chat" : chatStatus === "connecting" ? "Connecting to local game chat…" : chatStatus === "retrying" ? "Chat unavailable · retrying; previous messages are not current" : "Read-only · initial history is undated; times show arrival in Wolf Pack, not game time");
+  $("#chat-list").innerHTML = chatMessages.map(m => `<li><time>${m.receivedAt === null ? "—" : escape(new Date(m.receivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }))}</time><b>${escape(m.sender ?? "Unknown")}${m.channel === null ? "" : ` · ${escape(m.channel)}`}</b><span>${escape(stripGameColors(m.msg))}</span></li>`).join("") || `<li>${chatStatus === "disconnected" ? "Game disconnected." : chatStatus === "retrying" ? "Waiting for chat; retrying…" : "No messages received."}</li>`;
 }
 function renderMode(): void {
   visible(".connection-bar", !sampleMode);
@@ -119,11 +172,11 @@ function renderMode(): void {
   document.querySelectorAll<HTMLElement>(".sample-marker").forEach(el => { el.hidden = !sampleMode; });
   visible("#map-distance", sampleMode); visible("#map-legend", sampleMode);
   visible("#selected-report", sampleMode); visible("#sighting-empty", !sampleMode);
-  text("#report-count", sampleMode ? "3 SAMPLE REPORTS" : "UNAVAILABLE");
+  text("#report-count", sampleMode ? "3 SAMPLE REPORTS" : "0 REPORTS");
+  $(".aircraft").toggleAttribute("hidden", !sampleMode);
   text("#awards-summary", sampleMode ? "3 sample squad awards" : "Awards unavailable");
   $("#awards-content").innerHTML = sampleMode ? "<p>Moss · Teamwork</p><p>Moss · Mission Maker</p><p>Raven · Supporting Fire</p>" : "<p>Awards are unavailable in real view.</p>";
-  text("#chat-subtitle", sampleMode ? "Read-only fictional sample messages" : "Read-only · unavailable in real view");
-  $("#chat-list").innerHTML = sampleMode ? "<li><time>14:32</time><b>Moss</b><span>Turning toward the coast.</span></li><li><time>14:31</time><b>Raven</b><span>Contact over the bay, heading north.</span></li><li><time>14:30</time><b>You</b><span>Copy, climbing to meet you.</span></li>" : "<li>Game chat is unavailable in real view.</li>";
+  renderChat();
   enter.disabled = sampleMode || !!squad; leave.disabled = sampleMode || !squad; share.disabled = sampleMode;
   visible("#invite", !sampleMode && !!selfId); visible("#copy-invite", !sampleMode && !!selfId);
   renderPublishing(); renderInstruments(); renderSquad(); renderReports();
@@ -166,6 +219,8 @@ mapImage.addEventListener("error", () => {
 function stopGame(): void {
   stopFeed?.(); stopFeed = undefined;
   stopMap?.(); stopMap = undefined;
+  stopChat?.(); stopChat = undefined; chatStatus = "disconnected"; chatMessages = []; knownMap = null;
+  clearReports(); renderChat();
   own = null; ownAt = 0; histories = emptyHistories(); syncPublishing();
   clearMap("Connect game to load the local operating map.");
   if (selfId && members.has(selfId)) remember({ ...members.get(selfId)!.member, sample: null });
@@ -200,6 +255,24 @@ share.addEventListener("click", () => {
   if (stopFeed) return stopGame();
   share.textContent = "Disconnect game"; text("#feed-status", "Connecting to the local game. Allow loopback access if prompted.");
   text("#map-status", "Connecting to the local game map…");
+  chatStatus = "connecting"; renderChat(); renderReports();
+  stopChat = watchChat(update => {
+    if (sampleMode) return;
+    const statusChanged = chatStatus !== update.status;
+    chatStatus = update.status; chatMessages = update.messages;
+    if (update.reset) clearReports();
+    let reportsChanged = false;
+    for (const message of update.fresh) {
+      const report = parseSighting(message);
+      if (!report) continue;
+      reportsChanged = true;
+      liveReports.delete(report.key); liveReports.set(report.key, report);
+      while (liveReports.size > 100) liveReports.delete(liveReports.keys().next().value!);
+      if (!selectedKey || !liveReports.has(selectedKey)) selectedKey = report.key;
+    }
+    if (statusChanged || update.fresh.length || update.reset) renderChat();
+    if (statusChanged || reportsChanged || update.reset) renderReports();
+  });
   stopFeed = watchTelemetry(update => {
     if (sampleMode) return;
     own = update.sample; ownAt = own ? performance.now() : 0; syncPublishing();
@@ -213,7 +286,12 @@ share.addEventListener("click", () => {
   });
   stopMap = watchMap(update => {
     if (sampleMode) return;
-    if (update.status !== "ready") { clearMap(update.status === "waiting" ? "Game map unavailable; waiting for a valid map." : "Cannot reach game map metadata. Retrying…"); return; }
+    if (update.status !== "ready") {
+      if (update.status === "invalid" && knownMap !== null) { clearReports(); knownMap = null; }
+      clearMap(update.status === "waiting" || update.status === "invalid" ? "Game map unavailable; waiting for a valid map." : "Cannot reach game map metadata. Retrying…"); return;
+    }
+    if (knownMap !== null && knownMap !== update.generation) clearReports();
+    knownMap = update.generation;
     mapAt = performance.now();
     if (mapGeneration !== update.generation || !mapImage.hasAttribute("src")) {
       mapGeneration = update.generation; imageLoaded = false; mapImage.hidden = true;
@@ -228,6 +306,8 @@ $("#mode-toggle").addEventListener("click", () => {
   renderMode();
 });
 document.addEventListener("click", event => {
+  const target = (event.target as Element).closest<HTMLButtonElement>("button[data-target]");
+  if (!sampleMode && target?.dataset.target && liveReports.has(target.dataset.target)) { selectedKey = target.dataset.target; updateSelection(); return; }
   const button = (event.target as Element).closest<HTMLButtonElement>("button[data-report]");
   if (!sampleMode || !button) return;
   selected = Number(button.dataset.report); updateSelection();
@@ -275,4 +355,5 @@ setInterval(() => {
   }
   if (mapAt && performance.now() - mapAt >= SAMPLE_LIFETIME_MS) clearMap("Game map is stale; waiting for metadata.");
   if (changed) renderSquad();
+  updateAges();
 }, 1000);
