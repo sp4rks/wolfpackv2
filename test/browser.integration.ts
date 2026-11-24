@@ -8,7 +8,100 @@ let browser: Browser | undefined;
 afterAll(async () => { await browser?.close(); });
 const waitText = (page: Page, selector: string, text: string) => page.waitForFunction(([s, t]) => document.querySelector(s)?.textContent?.includes(t), [selector, text], { timeout: 9000 });
 const waitVisible = (page: Page, selector: string, visible: boolean) => page.waitForFunction(([s, v]) => (document.querySelector(s) as HTMLElement)?.hidden === !v, [selector, visible] as const, { timeout: 9000 });
+const openSquad = async (page: Page) => {
+  if (!await page.locator("#squad-popover").evaluate(el => el.matches(":popover-open"))) await page.locator("#open-squad").click();
+};
 const referenceFixtures = (context: BrowserContext) => context.route("**/api/climb-speed?**", route => route.fulfill({ json: { normalKph: null, wepKph: null } }));
+
+test("squad sidebar popover is bounded, dismissible, and saves only its own preferences", async () => {
+  const instance = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  try {
+    const page = await instance.newPage();
+    await referenceFixtures(page.context());
+    await page.route("http://127.0.0.1:8111/**", route => route.fulfill({ json: { valid: false }, headers: { "Access-Control-Allow-Origin": "*" } }));
+    await page.goto(origin);
+    expect(await page.locator(".squad > *").evaluateAll(els => els.map(el => el.className))).toEqual(["section-head", "table-wrap"]);
+    expect(await page.locator(".squad .section-head").innerText()).toBe("Squad");
+    expect(await page.locator(".sidebar #squad-popover #enter, .sidebar #squad-popover #leave, .sidebar #squad-popover #invite, .sidebar #squad-popover #copy-invite, .sidebar #squad-popover #squad-status, .sidebar #squad-popover #publish-status, .sidebar #squad-popover .awards, .sidebar #squad-form").count()).toBe(8);
+    expect(await page.locator("#squad-popover").getAttribute("role")).toBe("region");
+    expect(await page.locator("#publish-status").textContent()).toBe("Sharing starts when the game and squad are connected.");
+    expect(await page.locator("#settings-form [name=squad], #settings-form [name=shareInstruments]").count()).toBe(0);
+    expect(await page.locator("#settings-form [name=player], #settings-form [name=playerStats], #settings-form [name=speed]").count()).toBe(3);
+    for (const [width, height] of [[1440, 900], [320, 640], [640, 320]]) {
+      await page.setViewportSize({ width, height });
+      await openSquad(page);
+      expect(await page.locator(".sidebar").getByRole("region", { name: "Squad" }).count()).toBe(1);
+      const bounds = await page.locator("#squad-popover").boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.y).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(height);
+      expect(await page.locator("#squad-popover").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      if (width === 320) {
+        const fit = await page.evaluate(() => {
+          const popover = document.querySelector("#squad-popover")!.getBoundingClientRect();
+          const sharing = document.querySelector("#squad-form .sharing-preference")!.getBoundingClientRect();
+          const save = document.querySelector("#squad-form button")!.getBoundingClientRect();
+          const help = document.querySelector("#sharing-help")!.getBoundingClientRect();
+          return { popoverBottom: popover.bottom, sharingBottom: sharing.bottom, saveBottom: save.bottom, helpWidth: help.width, sharingWidth: sharing.width };
+        });
+        expect(fit.sharingBottom).toBeLessThanOrEqual(fit.popoverBottom);
+        expect(fit.saveBottom).toBeLessThanOrEqual(fit.popoverBottom);
+        expect(fit.helpWidth).toBe(fit.sharingWidth);
+      }
+      if (process.env.SQUAD_SCREENSHOTS && width !== 640) await page.screenshot({ path: `${process.env.SQUAD_SCREENSHOTS}/squad-${width}.png` });
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => document.querySelector("#squad-popover")!.contains(document.activeElement))).toBe(true);
+      await page.keyboard.press("Escape");
+      expect(await page.locator("#squad-popover").evaluate(el => el.matches(":popover-open"))).toBe(false);
+      expect(await page.locator("#open-squad").evaluate(el => document.activeElement === el)).toBe(true);
+      if (process.env.SQUAD_SCREENSHOTS && width !== 640) await page.screenshot({ path: `${process.env.SQUAD_SCREENSHOTS}/squad-closed-${width}.png` });
+      if (width === 320) {
+        await openSquad(page);
+        await page.getByRole("button", { name: "Close squad" }).focus();
+        await page.keyboard.press("Enter");
+        expect(await page.locator("#squad-popover").evaluate(el => el.matches(":popover-open"))).toBe(false);
+        expect(await page.locator("#open-squad").evaluate(el => document.activeElement === el)).toBe(true);
+        await openSquad(page);
+        await page.getByRole("button", { name: "Save squad preferences" }).focus();
+        await page.keyboard.press("Enter");
+        expect(await page.locator("#squad-popover").evaluate(el => el.matches(":popover-open"))).toBe(false);
+        expect(await page.locator("#open-squad").evaluate(el => document.activeElement === el)).toBe(true);
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.locator("#open-settings").click();
+    await page.locator('[name=player]').fill("Pilot");
+    await page.locator('[name=playerStats]').uncheck();
+    await page.locator('#settings-form button[type=submit]').click();
+    await openSquad(page);
+    await page.locator('#squad-form [name=squad]').fill("Discarded");
+    await page.locator('#squad-form [name=shareInstruments]').uncheck();
+    await page.keyboard.press("Escape");
+    await openSquad(page);
+    expect(await page.locator('#squad-form [name=squad]').inputValue()).toBe("Wolf Pack");
+    expect(await page.locator('#squad-form [name=shareInstruments]').isChecked()).toBe(true);
+    await page.locator('#squad-form [name=shareInstruments]').uncheck();
+    await page.locator('#squad-form [name=squad]').fill("   ");
+    await page.locator('#squad-form button[type=submit]').click();
+    expect(await page.locator('#squad-form [name=squad]').evaluate((el: HTMLInputElement) => el.validity.valid)).toBe(false);
+    await page.locator('#squad-form [name=squad]').fill("Wing");
+    await page.locator('#squad-form button[type=submit]').click();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("wolfpack-v2-preferences")!))).toMatchObject({ player: "Pilot", playerStats: false, squad: "Wing", shareInstruments: false });
+    expect(await page.locator("#publish-status").textContent()).toBe("Instrument sharing is off.");
+    await page.locator("#open-settings").click();
+    await page.locator('[name=player]').fill("Pilot two");
+    await page.locator('#settings-form button[type=submit]').click();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("wolfpack-v2-preferences")!))).toMatchObject({ player: "Pilot two", playerStats: false, squad: "Wing", shareInstruments: false });
+    await openSquad(page);
+    await page.locator('#squad-form [name=squad]').fill("Dismissed");
+    await page.locator("#main").click({ position: { x: 5, y: 5 } });
+    expect(await page.locator("#squad-popover").evaluate(el => el.matches(":popover-open"))).toBe(false);
+    await openSquad(page);
+    expect(await page.locator('#squad-form [name=squad]').inputValue()).toBe("Wing");
+  } finally { await instance.close(); }
+}, 30000);
 
 test("responsive live layout, accessible icon controls and native map aspect", async () => {
   const instance = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
@@ -116,13 +209,13 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   expect(unchangedAnnouncements).toBe(0);
   await waitText(viewer, "#feed-status", "aircraft instruments are unavailable");
   expect(requests.some(r => r.page === viewer && r.path === "/state")).toBe(true);
-  await pilot.locator("#open-settings").click();
+  await openSquad(pilot);
   expect(await pilot.locator('[name="shareInstruments"]').isChecked()).toBe(true);
   await pilot.locator('[name="shareInstruments"]').uncheck();
-  await pilot.locator("#cancel-settings").click();
-  await pilot.locator("#open-settings").click();
+  await pilot.keyboard.press("Escape");
+  await openSquad(pilot);
   expect(await pilot.locator('[name="shareInstruments"]').isChecked()).toBe(true);
-  await pilot.locator("#cancel-settings").click();
+  await pilot.keyboard.press("Escape");
 
   // Game works without a room, and no map image is requested for invalid metadata.
   await waitText(pilot, "#feed-status", "Connected to local game instruments");
@@ -141,18 +234,20 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await waitVisible(pilot, "#live-map", true);
 
   // A viewer must explicitly join, even when the invite is open.
-  await pilot.locator("#enter").click();
+  await openSquad(pilot); await pilot.locator("#enter").click();
   await waitText(pilot, "#squad-status", "Connected.");
+  await waitText(pilot, "#publish-status", "Sharing your flight instruments with the squad.");
   const invite = await pilot.locator("#invite").getAttribute("href");
   expect(invite).toContain("#room=");
-  await pilot.locator("#copy-invite").click();
+  await openSquad(pilot); await pilot.locator("#copy-invite").click();
   expect(await pilot.evaluate(() => navigator.clipboard.readText())).toBe(invite);
   await waitText(pilot, "#squad-status", "Invite copied");
   await viewer.goto(invite!);
   expect(await viewer.locator("#squad-status").textContent()).toContain("Not connected");
+  expect(await viewer.locator("#open-squad").innerText()).toBe("Join squad");
   await viewer.locator("#reconnect").click();
   expect(await viewer.locator("#squad-status").textContent()).toContain("Not connected");
-  await viewer.locator("#enter").click();
+  await openSquad(viewer); await viewer.locator("#enter").click();
   await waitText(viewer, "#squad-status", "Connected.");
   await waitText(viewer, "#squad-rows", "321 km/h");
   const remoteAircraft = viewer.locator("#squad-rows tr").filter({ hasNotText: "(you)" }).locator('td[data-label="Aircraft"]');
@@ -190,9 +285,9 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await remoteAircraft.getByText("p-51_mk1a_usaaf", { exact: true }).waitFor();
 
   // Save off sends a clear, while local instruments and map remain.
-  await pilot.locator("#open-settings").click();
+  await openSquad(pilot);
   await pilot.locator('[name="shareInstruments"]').uncheck();
-  await pilot.locator('#settings-form button[type="submit"]').click();
+  await pilot.locator('#squad-form button[type="submit"]').click();
   await pilot.waitForFunction(() => JSON.parse(localStorage.getItem("wolfpack-v2-preferences")!).shareInstruments === false);
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
   expect(await remoteAircraft.textContent()).toBe("—");
@@ -200,9 +295,9 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   expect(await ownAircraft.textContent()).toBe("p-51_mk1a_usaaf");
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("321");
   expect(await pilot.locator("#live-map").isVisible()).toBe(true);
-  await pilot.locator("#open-settings").click();
+  await openSquad(pilot);
   await pilot.locator('[name="shareInstruments"]').check();
-  await pilot.locator('#settings-form button[type="submit"]').click();
+  await pilot.locator('#squad-form button[type="submit"]').click();
   await waitText(viewer, "#squad-rows", "321 km/h");
 
   // Invalid data clears, image error has no stale map, and generation recovers.
@@ -250,10 +345,10 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await waitText(pilot, "#squad-status", "Connected.");
   await waitText(viewer, "#squad-rows", "321 km/h");
 
-  await pilot.locator("#leave").click();
+  await openSquad(pilot); await pilot.locator("#leave").click();
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("321");
   expect(await pilot.locator("#live-map").isVisible()).toBe(true);
-  await pilot.locator("#enter").click();
+  await openSquad(pilot); await pilot.locator("#enter").click();
   await waitText(viewer, "#squad-rows", "321 km/h");
   // Reconnect restarts both while preserving the same private room.
   const count = requests.filter(r => r.page === pilot && r.path === "/state").length;
@@ -262,7 +357,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   expect(await pilot.locator("#invite").getAttribute("href")).toBe(invite);
   expect(requests.filter(r => r.page === pilot && r.path === "/state").length).toBeGreaterThan(count);
   await waitText(viewer, "#squad-rows", "321 km/h");
-  await pilot.locator("#leave").click();
+  await openSquad(pilot); await pilot.locator("#leave").click();
   await pilot.locator("#reconnect").click();
   await waitText(pilot, "#feed-status", "Connected to local game instruments");
   expect(await pilot.locator("#squad-status").textContent()).toContain("Disconnected");
@@ -303,8 +398,10 @@ test("chat is local, incremental and recovers without inventing sightings", asyn
     await route.fulfill({ status: body ? 200 : 404, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(body) });
   });
   await pilot.goto(origin); await viewer.goto(origin);
-  await pilot.locator("#enter").click(); await waitText(pilot, "#squad-status", "Connected.");
-  await viewer.goto((await pilot.locator("#invite").getAttribute("href"))!); await viewer.locator("#enter").click(); await waitText(viewer, "#squad-status", "Connected.");
+  await openSquad(pilot); await pilot.locator("#enter").click(); await waitText(pilot, "#squad-status", "Connected.");
+  await viewer.goto((await pilot.locator("#invite").getAttribute("href"))!); await openSquad(viewer); await viewer.locator("#enter").click(); await waitText(viewer, "#squad-status", "Connected.");
+  await pilot.keyboard.press("Escape");
+  await viewer.keyboard.press("Escape");
   await waitText(pilot, "#chat-list", "Old(P-40)");
   expect(await pilot.locator("#chat-list time").first().textContent()).toBe("—");
   expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
@@ -466,11 +563,13 @@ test("reconnect preserves a requested room through joining or failure and ignore
   });
   await page.goto(`${origin}/#room=0123456789abcdef0123456789abcdef`);
   await waitText(page, "#enter", "Join squad");
+  expect(await page.locator("#open-squad").innerText()).toBe("Join squad");
   await page.evaluate(() => { location.hash = ""; });
   await waitText(page, "#enter", "Create squad");
+  expect(await page.locator("#open-squad").innerText()).toBe("Squad");
   await page.locator("#reconnect").click();
   expect(await page.evaluate(() => ((window as any).sockets ?? []).length)).toBe(0);
-  await page.locator("#enter").click();
+  await openSquad(page); await page.locator("#enter").click();
   expect(await page.locator("#squad-status").textContent()).toContain("Connecting");
   await page.locator("#reconnect").click();
   expect(await page.evaluate(() => (window as any).sockets.length)).toBe(2);
@@ -493,10 +592,10 @@ test("reconnect preserves a requested room through joining or failure and ignore
     socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ type: "welcome", selfId: "new", members: [{ id: "new", name: "Pilot", sample: null }] }) }));
   });
   await waitText(page, "#squad-status", "Connected.");
-  await page.locator("#leave").click();
+  await openSquad(page); await page.locator("#leave").click();
   await page.locator("#reconnect").click();
   expect(await page.evaluate(() => (window as any).sockets.length)).toBe(3);
-  await page.locator("#enter").click();
+  await openSquad(page); await page.locator("#enter").click();
   expect(await page.evaluate(() => (window as any).sockets[3].protocols[1] === (window as any).sockets[2].protocols[1])).toBe(true);
   await context.close();
 }, 30000);

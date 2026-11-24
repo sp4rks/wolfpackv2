@@ -13,10 +13,11 @@ install and no account to create.
    instruments. This lets Wolf Pack read flight data from War Thunder on your
    computer. Wolf Pack reads from the game; it doesn’t control it. Look for live
    numbers under **Your instruments**.
-3. Want to share with friends? Set your **Player name** in **Settings**, select
-   **Create squad**, then **Copy invite**. Send the link privately. Friends open
-   it, set their player name, and select **Join squad**. They don’t need to run
-   War Thunder or approve game access just to watch.
+3. Want to share with friends? Set your **Player name** in **Settings** and save.
+   Open **Squad** in the sidebar, select **Create squad**, then **Copy invite**.
+   Send the link privately. Friends open it, set and save their player name in
+   **Settings**, then open **Join squad** in the sidebar and select **Join squad**.
+   They don’t need to run War Thunder or approve game access just to watch.
 
 If your instruments don’t show up, check that the game is running and that your
 browser allows local network access for Wolf Pack, then select **Reconnect**.
@@ -24,8 +25,8 @@ browser allows local network access for Wolf Pack, then select **Reconnect**.
 ## What gets shared?
 
 Your flight instruments are shared by default when you’re connected to both the
-game and a squad. Turn off **Share flight instruments with squad** in **Settings**
-to keep them to yourself.
+game and a squad. To keep them to yourself, open **Squad** in the sidebar, turn
+off **Share flight instruments with squad**, and select **Save squad preferences**.
 
 Your map and game chat stay on your computer. Sightings come from some in-game
 radio calls; they aren’t live player markers. By default, Wolf Pack sends target

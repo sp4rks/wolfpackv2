@@ -115,7 +115,6 @@ function renderSquad(): void {
     return `<tr><td>${escape(name)}</td><td data-label="Aircraft">${escape(s?.aircraft ?? "—")}</td><td data-label="Vy 100%">${local ? target(reference?.normalKph) : "—"}</td><td data-label="Vy WEP">${local ? target(reference?.wepKph) : "—"}</td><td data-label="IAS"><span${iasAttrs}>${speed(s?.iasKph ?? null, prefs)} ${speedUnit(prefs)}${comparison ? `<span class="visually-hidden">. ${escape(comparison.description)}</span>` : ""}</span></td><td data-label="Altitude">${altitude(s?.altitudeM ?? null, prefs)} ${prefs.altitude}</td><td data-label="Bearing"><span class="bearing-value">${bearing(s?.headingDeg ?? null)} ${arrow(s?.headingDeg)}</span></td><td data-label="Climb">${climb(s?.climbMps ?? null, prefs)} ${climbUnit(prefs)}</td><td data-label="Throttle">${s?.throttlePct == null ? "—" : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(s.throttlePct)}%`}</td></tr>`;
   }).join("");
   $("#squad-rows").innerHTML = html;
-  text("#squad-subtitle", `${prefs.squad} · live instruments when shared · out-of-action status unavailable`);
 }
 function renderReports(): void {
   const focused = document.activeElement instanceof HTMLButtonElement ? document.activeElement.dataset.target : undefined;
@@ -190,9 +189,9 @@ function renderPublishing(): void {
     ? "New target nicknames are sent via Wolf Pack to ThunderSkill; turn off in Settings."
     : "Public player lookups are off in Settings.");
   text("#publish-status", !prefs.shareInstruments
-    ? "Squad instrument sharing is off in Settings. Your map, chat, sighting details and instruments remain local; target nicknames may be looked up as described in Settings."
-    : own && selfId ? "Sharing your own aircraft instruments with the squad. Map, chat and sighting details stay local; target nicknames may be looked up as described in Settings."
-    : "Squad instrument sharing is on in Settings. Join a squad to share when game readings are available; map, chat and sighting details stay local; target nicknames may be looked up as described in Settings.");
+    ? "Instrument sharing is off."
+    : own && selfId ? "Sharing your flight instruments with the squad."
+    : "Sharing starts when the game and squad are connected.");
 }
 function syncPublishing(): void {
   const current = !!selfId && prefs.shareInstruments ? own : null;
@@ -246,6 +245,7 @@ function joinRequested(): void {
 enter.addEventListener("click", () => {
   if (squad) return;
   if (!displayName(prefs.player)) { text("#squad-status", "Set a valid player name in Settings first."); return; }
+  $("#open-squad span").textContent = "Squad";
   requestedRoom = requestedRoom ?? roomKey ?? createRoomKey();
   roomKey = requestedRoom;
   enter.textContent = "Rejoin squad";
@@ -326,8 +326,7 @@ function section(name: string): void {
   for (const id of ["configuration", "display"]) { visible(`#${id}`, id === name); $(`[data-section="${id}"]`).setAttribute("aria-pressed", String(id === name)); }
 }
 $("#open-settings").addEventListener("click", () => {
-  for (const name of ["player", "squad", ...Object.keys(choices)] as (keyof Preferences)[]) field(name).value = String(prefs[name]);
-  (field("shareInstruments") as HTMLInputElement).checked = prefs.shareInstruments;
+  for (const name of ["player", ...Object.keys(choices)] as (keyof Preferences)[]) field(name).value = String(prefs[name]);
   (field("playerStats") as HTMLInputElement).checked = prefs.playerStats;
   field("endpoint").value = GAME_ORIGIN; section("configuration"); dialog.showModal();
 });
@@ -336,18 +335,38 @@ $("#close-settings").addEventListener("click", () => dialog.close());
 $("#cancel-settings").addEventListener("click", () => dialog.close());
 form.addEventListener("submit", event => {
   event.preventDefault();
-  for (const name of ["player", "squad"]) {
-    const input = field(name); input.setCustomValidity(displayName(input.value) ? "" : "Enter a name of up to 32 characters without control characters.");
-    if (!input.checkValidity()) { section("configuration"); input.reportValidity(); return; }
-  }
-  const candidate = Object.fromEntries(["player", "squad", ...Object.keys(choices)].map(name => [name, field(name).value]));
-  prefs = preferences({ ...candidate, playerStats: (field("playerStats") as HTMLInputElement).checked, shareInstruments: (field("shareInstruments") as HTMLInputElement).checked }); if (!prefs.playerStats) profiles.clear(); savePrefs(); dialog.close(); syncPublishing();
+  const player = field("player");
+  player.setCustomValidity(displayName(player.value) ? "" : "Enter a name of up to 32 characters without control characters.");
+  if (!player.checkValidity()) { section("configuration"); player.reportValidity(); return; }
+  const candidate = Object.fromEntries(["player", ...Object.keys(choices)].map(name => [name, field(name).value]));
+  prefs = preferences({ ...prefs, ...candidate, playerStats: (field("playerStats") as HTMLInputElement).checked }); if (!prefs.playerStats) profiles.clear(); savePrefs(); dialog.close(); syncPublishing();
   renderInstruments(); renderSquad(); renderReports();
   if (squad) text("#squad-status", "Preferences saved. Player name changes apply on rejoin.");
 });
-enter.textContent = roomKey ? "Join squad" : "Create squad";
+const squadPopover = $("#squad-popover");
+const squadForm = $<HTMLFormElement>("#squad-form");
+const squadName = squadForm.elements.namedItem("squad") as HTMLInputElement;
+const squadSharing = squadForm.elements.namedItem("shareInstruments") as HTMLInputElement;
+squadName.addEventListener("input", () => squadName.setCustomValidity(""));
+squadPopover.addEventListener("beforetoggle", event => {
+  if ((event as ToggleEvent).newState === "open") {
+    squadName.value = prefs.squad; squadName.setCustomValidity(""); squadSharing.checked = prefs.shareInstruments;
+  }
+});
+squadForm.addEventListener("submit", event => {
+  event.preventDefault();
+  squadName.setCustomValidity(displayName(squadName.value) ? "" : "Enter a name of up to 32 characters without control characters.");
+  if (!squadName.reportValidity()) return;
+  prefs = preferences({ ...prefs, squad: squadName.value, shareInstruments: squadSharing.checked });
+  savePrefs(); syncPublishing(); squadPopover.hidePopover();
+});
+function updateInviteAction(): void {
+  enter.textContent = roomKey ? "Join squad" : "Create squad";
+  $("#open-squad span").textContent = roomKey ? "Join squad" : "Squad";
+}
+updateInviteAction();
 window.addEventListener("hashchange", () => {
-  if (!squad && !requestedRoom) { roomKey = inviteKey(); enter.textContent = roomKey ? "Join squad" : "Create squad"; }
+  if (!squad && !requestedRoom) { roomKey = inviteKey(); updateInviteAction(); }
 });
 connection("squad", "disconnected", "Disconnected");
 renderPublishing(); renderInstruments(); renderSquad(); renderReports(); renderChat();

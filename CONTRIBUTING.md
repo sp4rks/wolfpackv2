@@ -59,12 +59,14 @@ for live values under **Your instruments**. A plain dev server does not inject
 fake game data; use `bun run verify:dashboard` to reproduce gameplay scenarios
 without the game.
 
-For a manual squad check, set a player name, choose **Create squad**, and open
-the resulting local invite in a second browser profile. Set a different name
-and click **Join squad**. Check that both names appear in the squad. The viewer
-does not need the game, even though its dashboard will try to read it. Leaving
-the squad does not stop game reads. **Reconnect** retries game access and an
-already-requested squad; it does not join a new invite or a squad you left.
+For a manual squad check, set and save a player name in **Settings**, open
+**Squad** in the sidebar, and choose **Create squad**. Copy the local invite and
+open it in a second browser profile. Set and save a different name in
+**Settings**, open **Join squad** in the sidebar, and select **Join squad**.
+Check that both names appear in the squad. The viewer does not need the game,
+even though its dashboard will try to read it. Leaving the squad does not stop
+game reads. **Reconnect** retries game access and an already-requested squad;
+it does not join a new invite or a squad you left.
 
 To run the browser tests against a dev server you started yourself, run
 `TEST_ORIGIN=http://127.0.0.1:5173 bun run test:browser` in a second terminal.
@@ -82,7 +84,7 @@ For routine browser checks, prefer the self-contained verifier.
 | Worker and bindings | [`cloudflare.config.ts`](cloudflare.config.ts) configures assets, the custom domain, the SQLite-backed squad Durable Object, the reference database, and the lookup rate limiter. |
 
 The Spotter’s Index layout follows the readability snapshot from
-`designs/wolfpack-v2` at `b2f16417bea55514d5ca9c8a3c315136b0a7a073`.
+`designs/wolfpack-v2` at `22ee2d0c8eed8e426a157a2e4cef37b7af1b9ca3`.
 
 ## Preserve these behaviour and privacy boundaries
 
@@ -109,6 +111,11 @@ The Spotter’s Index layout follows the readability snapshot from
 
 ### Squad sharing and settings
 
+- Squad controls, connection and publishing status, the local squad label, and
+  instrument sharing are in the sidebar’s **Squad** popover. Squad preferences
+  require **Save squad preferences**; dismissing the popover discards unsaved
+  edits. Player name, display units, and public player-stats privacy remain in
+  **Settings**.
 - **Share flight instruments with squad** defaults on. Publish only allowlisted
   own-aircraft readings while both connections are active. Turning sharing off
   clears the squad’s copy without stopping local instruments or the map. Missing
@@ -143,8 +150,10 @@ The Spotter’s Index layout follows the readability snapshot from
   also recorded in `mec_workbook.source_url`.
 - Squad IAS colours compare each reading with **the viewer’s aircraft target**,
   using each row’s throttle to choose between the normal and WEP references.
-  They do not show each squadmate’s own optimum. Within ±2 km/h is on target;
-  colour saturates at ±15%, and text gives the deviation.
+  Above 100% throttle, use WEP when available and the 100% target otherwise;
+  at or below 100%, use the 100% target. They do not show each squadmate’s own
+  optimum. Within ±2 km/h is on target; colour saturates at ±15%, and text gives
+  the deviation.
 - **Look up public player stats** defaults on. For eligible new named calls,
   Wolf Pack forwards just the normalized target nickname to ThunderSkill, not
   the chat, reporter, position, squad, or flight instruments. These are apparent
