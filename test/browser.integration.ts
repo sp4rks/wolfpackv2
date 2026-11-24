@@ -20,13 +20,18 @@ test("readability layout, keyboard selection and native map aspect", async () =>
     });
     await page.goto(origin);
     await page.locator("#mode-toggle").click();
+    expect(await page.locator(".squad thead th").allTextContents()).toEqual(["Player", "Aircraft", "IAS", "Altitude", "Bearing", "Climb", "Throttle"]);
+    expect(await page.locator('#squad-rows td[data-label="Aircraft"]').allTextContents()).toEqual(["Spitfire Mk IX", "P-51D Mustang", "Bf 109 G-6"]);
+    await page.locator("#show-own").uncheck();
+    expect(await page.locator('#squad-rows td[data-label="Aircraft"]').allTextContents()).toEqual(["P-51D Mustang", "Bf 109 G-6"]);
+    await page.locator("#show-own").check();
     expect(await page.locator(".primary-readings > div").count()).toBe(4);
     expect(await page.locator(".secondary-readings > div").count()).toBe(4);
     await page.locator('.map-marker[data-report="0"]').focus();
     await page.keyboard.press("Tab");
     await page.keyboard.press("Enter");
     expect(await page.locator("#selected-grid").textContent()).toBe("C5");
-    for (const [width, height] of [[1440, 900], [1024, 768], [800, 600], [768, 1024], [390, 844]]) {
+    for (const [width, height] of [[1440, 900], [1024, 768], [901, 768], [800, 600], [768, 1024], [390, 844]]) {
       await page.setViewportSize({ width, height });
       const layout = await page.evaluate(() => {
         const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
@@ -40,6 +45,11 @@ test("readability layout, keyboard selection and native map aspect", async () =>
       });
       expect(layout.report.top).toBeGreaterThanOrEqual(layout.map.bottom - 1);
       expect(layout.legend.top).toBeGreaterThanOrEqual(layout.report.bottom - 1);
+      if (width === 390) {
+        const aircraft = page.locator('#squad-rows td[data-label="Aircraft"]').first();
+        expect(await aircraft.evaluate(el => getComputedStyle(el).display)).toBe("flex");
+        expect(await aircraft.evaluate(el => getComputedStyle(el, "::before").content)).toBe('"Aircraft"');
+      }
       if (width >= 701 && width > height) {
         expect(layout.primary.left).toBeGreaterThan(layout.map.right - 1);
         expect(layout.chat.left).toBeGreaterThan(layout.map.right - 1);
@@ -54,6 +64,13 @@ test("readability layout, keyboard selection and native map aspect", async () =>
       }
       await page.evaluate(() => { document.documentElement.style.fontSize = "24px"; });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      const squadBounds = await page.evaluate(() => {
+        const panel = document.querySelector(".squad")!.getBoundingClientRect();
+        const table = document.querySelector(".squad table")!.getBoundingClientRect();
+        return { panelLeft: panel.left, panelRight: panel.right, tableLeft: table.left, tableRight: table.right };
+      });
+      expect(squadBounds.tableLeft).toBeGreaterThanOrEqual(squadBounds.panelLeft - 1);
+      expect(squadBounds.tableRight).toBeLessThanOrEqual(squadBounds.panelRight + 1);
       await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
     }
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -75,6 +92,7 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
   const requests: Array<{ page: Page; path: string }> = [];
   let generation: number | null = null;
   let instrumentValid = true;
+  let aircraft: string | undefined = "p_51";
   let imageError = false;
   let stalled = false;
   const stalledPaths = new Set<string>();
@@ -94,13 +112,14 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
     }
     const body = path === "/map_info.json" ? generation === null ? { valid: false } : { map_generation: String(generation) }
       : path === "/state" ? { valid: instrumentValid, "IAS, km/h": 321, "H, m": 1000 }
-      : path === "/indicators" ? { valid: instrumentValid, army: "air", type: "p_51", compass: 90 }
+      : path === "/indicators" ? { valid: instrumentValid, army: "air", type: aircraft, compass: 90 }
       : path === "/gamechat" ? []
       : null;
     await route.fulfill({ status: body ? 200 : 404, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(body) });
   });
   await pilot.goto(origin);
   await viewer.goto(origin);
+  expect(await pilot.locator("#squad-rows td").getAttribute("colspan")).toBe("7");
   expect(requests).toHaveLength(0);
   expect(await pilot.locator("#share").textContent()).toBe("Connect game");
   await pilot.locator("#open-settings").click();
@@ -142,6 +161,27 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
   await waitText(viewer, "#squad-status", "Connected.");
   await waitText(viewer, "#squad-rows", "321 km/h");
   expect(requests.some(r => r.page === viewer)).toBe(false);
+  const remoteAircraft = viewer.locator("#squad-rows tr").filter({ hasNotText: "(you)" }).locator('td[data-label="Aircraft"]');
+  const viewerAircraft = viewer.locator("#squad-rows tr").filter({ hasText: "(you)" }).locator('td[data-label="Aircraft"]');
+  const ownAircraft = pilot.locator("#squad-rows tr").filter({ hasText: "(you)" }).locator('td[data-label="Aircraft"]');
+  expect(await remoteAircraft.textContent()).toBe("p_51");
+  expect(await viewerAircraft.textContent()).toBe("—");
+  expect(await ownAircraft.textContent()).toBe("p_51");
+
+  // A missing model is independent of the other readings, and updates propagate.
+  aircraft = undefined;
+  await remoteAircraft.getByText("—", { exact: true }).waitFor();
+  expect(await viewer.locator("#squad-rows").textContent()).toContain("321 km/h");
+  aircraft = "long_aircraft_model_".repeat(5);
+  await remoteAircraft.getByText(aircraft, { exact: true }).waitFor();
+  await viewer.setViewportSize({ width: 390, height: 844 });
+  await viewer.evaluate(() => { document.documentElement.style.fontSize = "24px"; });
+  expect(await viewer.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  expect(await remoteAircraft.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await viewer.evaluate(() => { document.documentElement.style.fontSize = ""; });
+  await viewer.setViewportSize({ width: 1280, height: 720 });
+  aircraft = "p_51";
+  await remoteAircraft.getByText("p_51", { exact: true }).waitFor();
 
   // Save off sends a clear, while local instruments and map remain.
   await pilot.locator("#open-settings").click();
@@ -149,6 +189,8 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
   await pilot.locator('#settings-form button[type="submit"]').click();
   await pilot.waitForFunction(() => JSON.parse(localStorage.getItem("wolfpack-v2-preferences")!).shareInstruments === false);
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
+  expect(await remoteAircraft.textContent()).toBe("—");
+  expect(await ownAircraft.textContent()).toBe("p_51");
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("321");
   expect(await pilot.locator("#live-map").isVisible()).toBe(true);
   await pilot.locator("#open-settings").click();
