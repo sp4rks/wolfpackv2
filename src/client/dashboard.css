@@ -1278,3 +1278,13 @@ th {
   .page { grid-template-areas: "heading heading" "connection connection" "map instruments" "map chat" "squad sightings"; }
   .connection-bar { grid-area: connection; margin: 0; }
 }
+
+.map.live-map { aspect-ratio: auto; min-height: 220px; display: flex; align-items: center; justify-content: center; background: #dce4dc; }
+.map.live-map #live-map { display: block; width: auto; height: auto; max-inline-size: 100%; max-block-size: 54svh; }
+@media (max-width: 850px) and (orientation: portrait) {
+  .map.live-map #live-map { max-block-size: 45svh; }
+}
+#map-status { padding: 18px; color: #36544f; text-align: center; }
+.dialog-body label.sharing-preference { display: grid; grid-template-columns: 20px 1fr; align-items: center; }
+.dialog-body .sharing-preference input { width: 18px; min-height: 18px; height: 18px; padding: 0; }
+.dialog-body .sharing-preference small { grid-column: 2; }

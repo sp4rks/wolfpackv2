@@ -3,9 +3,9 @@ import type { Telemetry } from "../shared/protocol.ts";
 export type Preferences = {
   player: string; squad: string; speed: "kmh" | "mph" | "kn";
   altitude: "m" | "ft"; distance: "km" | "mi" | "ft" | "yd" | "nm";
-  climb: "ms" | "ftmin"; temp: "c" | "f"; showOwn: boolean;
+  climb: "ms" | "ftmin"; temp: "c" | "f"; showOwn: boolean; shareInstruments: boolean;
 };
-export const defaults: Preferences = { player: "You", squad: "Wolf Pack", speed: "kmh", altitude: "m", distance: "km", climb: "ms", temp: "c", showOwn: true };
+export const defaults: Preferences = { player: "You", squad: "Wolf Pack", speed: "kmh", altitude: "m", distance: "km", climb: "ms", temp: "c", showOwn: true, shareInstruments: true };
 export const choices = { speed: ["kmh", "mph", "kn"], altitude: ["m", "ft"], distance: ["km", "mi", "ft", "yd", "nm"], climb: ["ms", "ftmin"], temp: ["c", "f"] } as const;
 export function preferences(value: unknown): Preferences {
   const result = { ...defaults };
@@ -16,6 +16,7 @@ export function preferences(value: unknown): Preferences {
     if ((choices[key] as readonly unknown[]).includes(data[key])) Object.assign(result, { [key]: data[key] });
   }
   if (typeof data.showOwn === "boolean") result.showOwn = data.showOwn;
+  if (typeof data.shareInstruments === "boolean") result.shareInstruments = data.shareInstruments;
   return result;
 }
 const number = (n: number, digits = 0) => new Intl.NumberFormat(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(n);

@@ -4,8 +4,14 @@ import { createRoomKey, isRoomKey, parseClientMessage } from "../src/shared/prot
 import { inviteKey, inviteUrl } from "../src/client/squad.ts";
 import { addHistory, altitude, bearing, climb, climbAngle, defaults, emptyHistories, preferences, speed, temperature } from "../src/client/derived.ts";
 import { sampleOwn } from "../src/client/sample.ts";
+import { mapGeneration } from "../src/client/map.ts";
 
 describe("dashboard readings and settings", () => {
+  test("sharing defaults on and survives validated saved preferences", () => {
+    expect(preferences({}).shareInstruments).toBe(true);
+    expect(preferences({ shareInstruments: false }).shareInstruments).toBe(false);
+    expect(preferences({ shareInstruments: "false" }).shareInstruments).toBe(true);
+  });
   test("converts units, preserves missing readings, and validates stored preferences", () => {
     const prefs = preferences({ speed: "mph", altitude: "ft", climb: "ftmin", temp: "f", distance: "nm", player: "  Ace  " });
     expect(prefs.player).toBe("Ace");
@@ -33,6 +39,16 @@ describe("dashboard readings and settings", () => {
     addHistory(history, { ...sampleOwn, iasKph: null });
     expect(history.iasKph).toEqual([]);
     expect("headingDeg" in history).toBe(false);
+  });
+});
+
+describe("game map metadata", () => {
+  test("accepts numeric generations only and rejects invalid or absent status", () => {
+    expect(mapGeneration({ map_generation: "12" })).toBe(12);
+    expect(mapGeneration({ valid: true, map_generation: 0 })).toBe(0);
+    for (const input of [null, {}, { valid: false, map_generation: 2 }, { valid: "true", map_generation: 1 }, { map_generation: "-1" }, { map_generation: "1?x=y" }, { map_generation: 1.5 }, { map_generation: Infinity }]) {
+      expect(mapGeneration(input)).toBeNull();
+    }
   });
 });
 

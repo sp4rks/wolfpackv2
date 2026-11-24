@@ -35,8 +35,9 @@
         </div>
       </div>
       <section class="connection-bar" aria-label="Squad connection">
-        <div class="connection-actions"><button id="enter" class="button-primary" type="button">Create squad</button><button id="leave" type="button" disabled>Leave squad</button><button id="share" type="button" disabled>Share game instruments</button><a id="invite" hidden>Invite link</a><button id="copy-invite" type="button" hidden>Copy invite</button></div>
-        <p id="squad-status" role="status">Not connected. Set your player name in Settings, then create or join a squad.</p><p id="feed-status" role="status">Not sharing game instruments.</p>
+        <div class="connection-actions"><button id="enter" class="button-primary" type="button">Create squad</button><button id="leave" type="button" disabled>Leave squad</button><button id="share" type="button">Connect game</button><a id="invite" hidden>Invite link</a><button id="copy-invite" type="button" hidden>Copy invite</button></div>
+        <p id="squad-status" role="status">Not connected. Set your player name in Settings, then create or join a squad.</p><p id="feed-status" role="status">Game disconnected. Connect game and allow loopback access if prompted.</p>
+        <p id="publish-status" role="status">Squad instrument sharing is on by default. Connect the game and join a squad to share; change this in Settings. The map is local only.</p>
       </section>
       <div class="dashboard">
         <section class="map-panel panel" aria-labelledby="map-title">
@@ -57,12 +58,12 @@
             role="group"
             aria-label="Illustrative coastal chart. Live map unavailable." id="map"
           >
-            <div class="map-art"></div>
-            <div class="map-columns" aria-hidden="true">
+            <div class="map-art" hidden></div>
+            <div class="map-columns" aria-hidden="true" hidden>
               <span>1</span><span>2</span><span>3</span><span>4</span
               ><span>5</span><span>6</span>
             </div>
-            <div class="map-rows" aria-hidden="true">
+            <div class="map-rows" aria-hidden="true" hidden>
               <span>A</span><span>B</span><span>C</span><span>D</span
               ><span>E</span>
             </div>
@@ -102,6 +103,8 @@
               <span></span>
               10 km <small>illustrative scale</small>
             </div>
+            <img id="live-map" alt="War Thunder operating map" hidden>
+            <p id="map-status" role="status">Connect game to load the local operating map.</p>
           </div>
           <div class="map-legend" id="map-legend" hidden>
             <span><i class="legend-own"></i> Ownship</span
@@ -329,6 +332,9 @@
                 autocomplete="off"
               ></label
             >
+            <label class="sharing-preference"><input type="checkbox" name="shareInstruments"> Share flight instruments with squad
+              <small>On by default. When connected to the game and a squad, your own aircraft instruments are sent to the squad. The map is never shared.</small>
+            </label>
           </section>
           <section id="display" hidden>
             <h3>Display units</h3>

@@ -10,11 +10,13 @@
     "build": "cf build",
     "deploy": "cf deploy",
     "check": "cf workers types && tsc -p tsconfig.json && tsc -p tsconfig.client.json && bun test test/unit.test.ts",
-    "test:room": "bun test ./test/room.integration.ts"
+    "test:room": "bun test ./test/room.integration.ts",
+    "test:browser": "bun test ./test/browser.integration.ts"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "2.0.0-rc.0",
     "cf": "1.0.0-rc.4",
+    "playwright": "1.63.0",
     "typescript": "7.0.2",
     "vite": "8.3.4"
   }
