@@ -20,12 +20,13 @@ test("responsive live layout, accessible icon controls and native map aspect", a
     });
     await page.goto(origin);
     await waitVisible(page, "#live-map", true);
+    expect(await page.locator(".squad thead th").allTextContents()).toEqual(["Player", "Aircraft", "IAS", "Altitude", "Bearing", "Climb", "Throttle"]);
     expect(await page.locator(".primary-readings > div").count()).toBe(4);
     expect(await page.locator(".secondary-readings > div").count()).toBe(4);
     expect(await page.locator("#mode-toggle, #share, .connection-bar, .sample-marker").count()).toBe(0);
     expect(await page.getByRole("button", { name: "Settings", exact: true }).count()).toBe(1);
     expect(await page.getByRole("button", { name: "Reconnect game and squad" }).count()).toBe(1);
-    for (const [width, height] of [[1440, 900], [1024, 768], [800, 600], [768, 1024], [390, 844]]) {
+    for (const [width, height] of [[1440, 900], [1024, 768], [901, 768], [800, 600], [768, 1024], [390, 844]]) {
       await page.setViewportSize({ width, height });
       const layout = await page.evaluate(() => {
         const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
@@ -55,6 +56,13 @@ test("responsive live layout, accessible icon controls and native map aspect", a
       }
       await page.evaluate(() => { document.documentElement.style.fontSize = "24px"; });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      const squadBounds = await page.evaluate(() => {
+        const panel = document.querySelector(".squad")!.getBoundingClientRect();
+        const table = document.querySelector(".squad table")!.getBoundingClientRect();
+        return { panelLeft: panel.left, panelRight: panel.right, tableLeft: table.left, tableRight: table.right };
+      });
+      expect(squadBounds.tableLeft).toBeGreaterThanOrEqual(squadBounds.panelLeft - 1);
+      expect(squadBounds.tableRight).toBeLessThanOrEqual(squadBounds.panelRight + 1);
       await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
     }
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -72,6 +80,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   const requests: Array<{ page: Page; path: string }> = [];
   let generation: number | null = null;
   let instrumentValid = true;
+  let aircraft: string | undefined = "p_51";
   let imageError = false;
   let stalled = false;
   const stalledPaths = new Set<string>();
@@ -92,7 +101,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
     }
     const body = path === "/map_info.json" ? generation === null ? { valid: false } : { map_generation: String(generation) }
       : path === "/state" ? { valid: instrumentValid && req.frame().page() === pilot, "IAS, km/h": 321, "H, m": 1000 }
-      : path === "/indicators" ? { valid: instrumentValid && req.frame().page() === pilot, army: "air", type: "p_51", compass: 90 }
+      : path === "/indicators" ? { valid: instrumentValid && req.frame().page() === pilot, army: "air", type: aircraft, compass: 90 }
       : path === "/gamechat" ? []
       : null;
     await route.fulfill({ status: body ? 200 : 404, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(body) });
@@ -100,6 +109,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await pilot.goto(origin);
   await viewer.goto(origin);
   await waitText(pilot, "#feed-status", "Connected to local game instruments");
+  expect(await pilot.locator("#squad-rows td").getAttribute("colspan")).toBe("7");
   expect(await pilot.locator("#feed-status").textContent()).toContain("p_51 · recent history");
   expect(await pilot.locator("#instrument-subtitle").count()).toBe(0);
   const unchangedAnnouncements = await pilot.evaluate(() => new Promise<number>(resolve => {
@@ -150,6 +160,38 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await viewer.locator("#enter").click();
   await waitText(viewer, "#squad-status", "Connected.");
   await waitText(viewer, "#squad-rows", "321 km/h");
+  const remoteAircraft = viewer.locator("#squad-rows tr").filter({ hasNotText: "(you)" }).locator('td[data-label="Aircraft"]');
+  const viewerAircraft = viewer.locator("#squad-rows tr").filter({ hasText: "(you)" }).locator('td[data-label="Aircraft"]');
+  const ownAircraft = pilot.locator("#squad-rows tr").filter({ hasText: "(you)" }).locator('td[data-label="Aircraft"]');
+  expect(await remoteAircraft.textContent()).toBe("p_51");
+  expect(await viewerAircraft.textContent()).toBe("—");
+  expect(await ownAircraft.textContent()).toBe("p_51");
+  await pilot.locator("#show-own").uncheck();
+  expect(await ownAircraft.count()).toBe(0);
+  expect(await remoteAircraft.textContent()).toBe("p_51");
+  await pilot.locator("#show-own").check();
+  expect(await ownAircraft.textContent()).toBe("p_51");
+
+  // A missing model is independent of the other readings, and updates propagate.
+  aircraft = undefined;
+  await remoteAircraft.getByText("—", { exact: true }).waitFor();
+  expect(await viewer.locator("#squad-rows").textContent()).toContain("321 km/h");
+  aircraft = "long_aircraft_model_".repeat(5);
+  await remoteAircraft.getByText(aircraft, { exact: true }).waitFor();
+  for (const [width, height] of [[901, 768], [390, 844]]) {
+    await viewer.setViewportSize({ width, height });
+    await viewer.evaluate(() => { document.documentElement.style.fontSize = "24px"; });
+    expect(await viewer.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    expect(await remoteAircraft.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    if (width === 390) {
+      expect(await remoteAircraft.evaluate(el => getComputedStyle(el).display)).toBe("flex");
+      expect(await remoteAircraft.evaluate(el => getComputedStyle(el, "::before").content)).toBe('"Aircraft"');
+    }
+    await viewer.evaluate(() => { document.documentElement.style.fontSize = ""; });
+  }
+  await viewer.setViewportSize({ width: 1280, height: 720 });
+  aircraft = "p_51";
+  await remoteAircraft.getByText("p_51", { exact: true }).waitFor();
 
   // Save off sends a clear, while local instruments and map remain.
   await pilot.locator("#open-settings").click();
@@ -157,6 +199,13 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await pilot.locator('#settings-form button[type="submit"]').click();
   await pilot.waitForFunction(() => JSON.parse(localStorage.getItem("wolfpack-v2-preferences")!).shareInstruments === false);
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
+  expect(await remoteAircraft.textContent()).toBe("—");
+  expect(await ownAircraft.textContent()).toBe("p_51");
+  await pilot.locator("#show-own").uncheck();
+  expect(await ownAircraft.count()).toBe(0);
+  expect(await remoteAircraft.textContent()).toBe("—");
+  await pilot.locator("#show-own").check();
+  expect(await ownAircraft.textContent()).toBe("p_51");
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("321");
   expect(await pilot.locator("#live-map").isVisible()).toBe(true);
   await pilot.locator("#open-settings").click();

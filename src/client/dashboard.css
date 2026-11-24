@@ -352,6 +352,12 @@ tbody tr:last-child td {
 .squad table td:first-child {
   color: #345c56;
 }
+.squad table td:first-child,
+.squad table td[data-label="Aircraft"] {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .chat ul {
   list-style: none;
   margin: 0;

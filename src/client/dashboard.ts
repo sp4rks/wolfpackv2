@@ -76,8 +76,8 @@ function renderInstruments(): void {
 function renderSquad(): void {
   showOwn.checked = prefs.showOwn;
   const rows = Array.from(members.values(), ({ member }) => ({ ...member, sample: member.id === selfId ? own : member.sample, name: member.id === selfId ? `${member.name} (you)` : member.name })).filter(member => prefs.showOwn || member.id !== selfId);
-  const html = rows.map(({ name, sample: s }) => `<tr><td>${escape(name)}</td><td data-label="IAS">${speed(s?.iasKph ?? null, prefs)} ${speedUnit(prefs)}</td><td data-label="Altitude">${altitude(s?.altitudeM ?? null, prefs)} ${prefs.altitude}</td><td data-label="Bearing">${bearing(s?.headingDeg ?? null)}</td><td data-label="Climb">${climb(s?.climbMps ?? null, prefs)} ${climbUnit(prefs)}</td><td data-label="Throttle">${s?.throttlePct == null ? "—" : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(s.throttlePct)}%`}</td></tr>`).join("");
-  $("#squad-rows").innerHTML = html || '<tr><td colspan="6">No squad readings available.</td></tr>';
+  const html = rows.map(({ name, sample: s }) => `<tr><td>${escape(name)}</td><td data-label="Aircraft">${escape(s?.aircraft ?? "—")}</td><td data-label="IAS">${speed(s?.iasKph ?? null, prefs)} ${speedUnit(prefs)}</td><td data-label="Altitude">${altitude(s?.altitudeM ?? null, prefs)} ${prefs.altitude}</td><td data-label="Bearing">${bearing(s?.headingDeg ?? null)}</td><td data-label="Climb">${climb(s?.climbMps ?? null, prefs)} ${climbUnit(prefs)}</td><td data-label="Throttle">${s?.throttlePct == null ? "—" : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(s.throttlePct)}%`}</td></tr>`).join("");
+  $("#squad-rows").innerHTML = html || '<tr><td colspan="7">No squad readings available.</td></tr>';
   text("#squad-subtitle", `${prefs.squad} · live instruments when shared · out-of-action status unavailable`);
 }
 function renderReports(): void {
