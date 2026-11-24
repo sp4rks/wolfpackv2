@@ -1,8 +1,10 @@
 # Wolf Pack
 
 An opt-in, browser-only War Thunder aircraft feed and invite-only squad relay.
-The Spotter’s Index UI follows the approved design reference at
-`designs/wolfpack-v2`, revision `7e3890382ae5b7a0af7b34e503e43255786f65a6`.
+The Spotter’s Index UI follows the approved readability design snapshot from
+`designs/wolfpack-v2`, based on revision
+`7e3890382ae5b7a0af7b34e503e43255786f65a6` (snapshot CSS SHA `effa21d8`,
+guide SHA `a7856e77`).
 
 ## Local verification
 
