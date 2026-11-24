@@ -9,7 +9,7 @@ afterAll(async () => { await browser?.close(); });
 const waitText = (page: Page, selector: string, text: string) => page.waitForFunction(([s, t]) => document.querySelector(s)?.textContent?.includes(t), [selector, text], { timeout: 9000 });
 const waitVisible = (page: Page, selector: string, visible: boolean) => page.waitForFunction(([s, v]) => (document.querySelector(s) as HTMLElement)?.hidden === !v, [selector, visible] as const, { timeout: 9000 });
 
-test("readability layout, keyboard selection and native map aspect", async () => {
+test("responsive live layout, accessible icon controls and native map aspect", async () => {
   const instance = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   try {
     const page = await instance.newPage();
@@ -19,33 +19,34 @@ test("readability layout, keyboard selection and native map aspect", async () =>
       return route.fulfill({ contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(path === "/map_info.json" ? { map_generation: 1 } : { valid: false }) });
     });
     await page.goto(origin);
-    await page.locator("#mode-toggle").click();
+    await waitVisible(page, "#live-map", true);
     expect(await page.locator(".primary-readings > div").count()).toBe(4);
     expect(await page.locator(".secondary-readings > div").count()).toBe(4);
-    await page.locator('.map-marker[data-report="0"]').focus();
-    await page.keyboard.press("Tab");
-    await page.keyboard.press("Enter");
-    expect(await page.locator("#selected-grid").textContent()).toBe("C5");
+    expect(await page.locator("#mode-toggle, #share, .connection-bar, .sample-marker").count()).toBe(0);
+    expect(await page.getByRole("button", { name: "Settings", exact: true }).count()).toBe(1);
+    expect(await page.getByRole("button", { name: "Reconnect game and squad" }).count()).toBe(1);
     for (const [width, height] of [[1440, 900], [1024, 768], [800, 600], [768, 1024], [390, 844]]) {
       await page.setViewportSize({ width, height });
       const layout = await page.evaluate(() => {
         const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
         return {
-          map: rect("#map").toJSON(), report: rect("#selected-report").toJSON(),
-          legend: rect("#map-legend").toJSON(), primary: rect(".instruments").toJSON(),
+          map: rect("#map").toJSON(), primary: rect(".instruments").toJSON(),
           support: rect(".supporting").toJSON(), chat: rect(".chat").toJSON(),
           brand: rect(".brand").toJSON(), title: rect(".mast-title h1").toJSON(),
-          settings: rect("#open-settings").toJSON(), ias: getComputedStyle(document.querySelector('[data-value="ias"]')!).fontSize,
+          settings: rect("#open-settings").toJSON(), reconnect: rect("#reconnect").toJSON(), ias: getComputedStyle(document.querySelector('[data-value="ias"]')!).fontSize,
         };
       });
-      expect(layout.report.top).toBeGreaterThanOrEqual(layout.map.bottom - 1);
-      expect(layout.legend.top).toBeGreaterThanOrEqual(layout.report.bottom - 1);
+      expect(layout.settings.width).toBe(44); expect(layout.settings.height).toBe(44);
+      expect(layout.reconnect.width).toBe(44); expect(layout.reconnect.height).toBe(44);
+      expect(layout.settings.right).toBeLessThanOrEqual(layout.reconnect.left);
+      expect(layout.title.right).toBeLessThanOrEqual(layout.settings.left);
+      expect(layout.reconnect.right).toBeLessThanOrEqual(width);
       if (width >= 701 && width > height) {
         expect(layout.primary.left).toBeGreaterThan(layout.map.right - 1);
         expect(layout.chat.left).toBeGreaterThan(layout.map.right - 1);
       } else {
         expect(layout.primary.bottom).toBeLessThanOrEqual(layout.map.top);
-        expect(layout.support.top).toBeGreaterThanOrEqual(layout.legend.bottom);
+        expect(layout.support.top).toBeGreaterThanOrEqual(layout.map.bottom);
       }
       if (width === 1440) {
         expect(layout.ias).toBe("52px");
@@ -57,19 +58,15 @@ test("readability layout, keyboard selection and native map aspect", async () =>
       await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
     }
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.locator("#mode-toggle").click();
-    await page.locator("#share").click();
-    await waitVisible(page, "#live-map", true);
     const ratio = await page.locator("#live-map").evaluate(el => { const r = el.getBoundingClientRect(); return r.width / r.height; });
     expect(ratio).toBeCloseTo(2, 2);
-    expect(await page.locator(".map-art").isVisible()).toBe(false);
-    expect(await page.locator(".sample-marker:visible").count()).toBe(0);
   } finally { await instance.close(); }
 }, 30000);
 
-test("local map and default publishing stay separate, opt-in and isolated", async () => {
+test("automatic game polling, reconnect and squad publishing remain independent", async () => {
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   const context = await browser.newContext();
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
   const pilot = await context.newPage();
   const viewer = await context.newPage();
   const requests: Array<{ page: Page; path: string }> = [];
@@ -78,12 +75,13 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
   let imageError = false;
   let stalled = false;
   const stalledPaths = new Set<string>();
+  const releaseStalls: Array<() => void> = [];
   await context.route("http://127.0.0.1:8111/**", async route => {
     const req = route.request(), path = new URL(req.url()).pathname;
     requests.push({ page: req.frame().page(), path });
-    if (stalled && path !== "/map.img") {
+    if (stalled && req.frame().page() === pilot && path !== "/map.img") {
       stalledPaths.add(path);
-      await new Promise(resolve => setTimeout(resolve, 4500));
+      await new Promise<void>(resolve => releaseStalls.push(resolve));
       try { await route.abort(); } catch { /* The browser may already have timed out. */ }
       return;
     }
@@ -93,16 +91,26 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
       return;
     }
     const body = path === "/map_info.json" ? generation === null ? { valid: false } : { map_generation: String(generation) }
-      : path === "/state" ? { valid: instrumentValid, "IAS, km/h": 321, "H, m": 1000 }
-      : path === "/indicators" ? { valid: instrumentValid, army: "air", type: "p_51", compass: 90 }
+      : path === "/state" ? { valid: instrumentValid && req.frame().page() === pilot, "IAS, km/h": 321, "H, m": 1000 }
+      : path === "/indicators" ? { valid: instrumentValid && req.frame().page() === pilot, army: "air", type: "p_51", compass: 90 }
       : path === "/gamechat" ? []
       : null;
     await route.fulfill({ status: body ? 200 : 404, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(body) });
   });
   await pilot.goto(origin);
   await viewer.goto(origin);
-  expect(requests).toHaveLength(0);
-  expect(await pilot.locator("#share").textContent()).toBe("Connect game");
+  await waitText(pilot, "#feed-status", "Connected to local game instruments");
+  expect(await pilot.locator("#feed-status").textContent()).toContain("p_51 · recent history");
+  expect(await pilot.locator("#instrument-subtitle").count()).toBe(0);
+  const unchangedAnnouncements = await pilot.evaluate(() => new Promise<number>(resolve => {
+    let changes = 0;
+    const observer = new MutationObserver(records => { changes += records.length; });
+    for (const selector of ["#feed-status", "#publish-status"]) observer.observe(document.querySelector(selector)!, { childList: true, characterData: true, subtree: true });
+    setTimeout(() => { observer.disconnect(); resolve(changes); }, 2300);
+  }));
+  expect(unchangedAnnouncements).toBe(0);
+  await waitText(viewer, "#feed-status", "aircraft instruments are unavailable");
+  expect(requests.some(r => r.page === viewer && r.path === "/state")).toBe(true);
   await pilot.locator("#open-settings").click();
   expect(await pilot.locator('[name="shareInstruments"]').isChecked()).toBe(true);
   await pilot.locator('[name="shareInstruments"]').uncheck();
@@ -110,15 +118,12 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
   await pilot.locator("#open-settings").click();
   expect(await pilot.locator('[name="shareInstruments"]').isChecked()).toBe(true);
   await pilot.locator("#cancel-settings").click();
-  expect(requests).toHaveLength(0);
 
   // Game works without a room, and no map image is requested for invalid metadata.
-  await pilot.locator("#share").click();
   await waitText(pilot, "#feed-status", "Connected to local game instruments");
   await waitText(pilot, "#map-status", "waiting for a valid map");
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("321");
   expect(requests.some(r => r.path === "/map.img")).toBe(false);
-  expect(requests.some(r => r.page === viewer)).toBe(false);
   expect(requests.some(r => r.path === "/map_obj.json")).toBe(false);
 
   generation = 7;
@@ -126,22 +131,25 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
   expect(await pilot.locator("#live-map").getAttribute("src")).toBe("http://127.0.0.1:8111/map.img?gen=7");
   expect(await pilot.locator("#live-map").getAttribute("crossorigin")).toBeNull();
   expect(await pilot.locator("#live-map").evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1);
-  expect(await pilot.locator(".map-art").isVisible()).toBe(false);
-  expect(await pilot.locator(".sample-marker:visible").count()).toBe(0);
   generation = 8;
   await pilot.waitForFunction(() => (document.querySelector("#live-map") as HTMLImageElement).src.endsWith("?gen=8"));
   await waitVisible(pilot, "#live-map", true);
 
-  // A viewer joins the real local Durable Object without polling the game.
+  // A viewer must explicitly join, even when the invite is open.
   await pilot.locator("#enter").click();
   await waitText(pilot, "#squad-status", "Connected.");
   const invite = await pilot.locator("#invite").getAttribute("href");
   expect(invite).toContain("#room=");
+  await pilot.locator("#copy-invite").click();
+  expect(await pilot.evaluate(() => navigator.clipboard.readText())).toBe(invite);
+  await waitText(pilot, "#squad-status", "Invite copied");
   await viewer.goto(invite!);
+  expect(await viewer.locator("#squad-status").textContent()).toContain("Not connected");
+  await viewer.locator("#reconnect").click();
+  expect(await viewer.locator("#squad-status").textContent()).toContain("Not connected");
   await viewer.locator("#enter").click();
   await waitText(viewer, "#squad-status", "Connected.");
   await waitText(viewer, "#squad-rows", "321 km/h");
-  expect(requests.some(r => r.page === viewer)).toBe(false);
 
   // Save off sends a clear, while local instruments and map remain.
   await pilot.locator("#open-settings").click();
@@ -181,8 +189,24 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("—");
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
   stalled = false;
+  releaseStalls.splice(0).forEach(release => release());
   await pilot.evaluate(() => { delete (performance as Performance & { now?: () => number }).now; });
+  await pilot.locator("#reconnect").click();
   await waitVisible(pilot, "#live-map", true);
+  await waitText(viewer, "#squad-rows", "321 km/h");
+
+  // Reconnect clears current readings, history and map before new requests finish.
+  stalledPaths.clear(); stalled = true;
+  while (!stalledPaths.has("/state") || !stalledPaths.has("/map_info.json")) await pilot.waitForTimeout(50);
+  await pilot.locator("#reconnect").click();
+  expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("—");
+  expect(await pilot.locator('[data-trace="ias"] svg').count()).toBe(0);
+  expect(await pilot.locator("#live-map").isVisible()).toBe(false);
+  stalled = false;
+  releaseStalls.splice(0).forEach(release => release());
+  await pilot.locator("#reconnect").click();
+  await waitText(pilot, "#feed-status", "Connected to local game instruments");
+  await waitText(pilot, "#squad-status", "Connected.");
   await waitText(viewer, "#squad-rows", "321 km/h");
 
   await pilot.locator("#leave").click();
@@ -190,28 +214,22 @@ test("local map and default publishing stay separate, opt-in and isolated", asyn
   expect(await pilot.locator("#live-map").isVisible()).toBe(true);
   await pilot.locator("#enter").click();
   await waitText(viewer, "#squad-rows", "321 km/h");
-  // Enter sample while actively connected; neither the game nor the room resumes.
-  await pilot.locator("#mode-toggle").click();
-  expect(await pilot.locator("#live-map").isVisible()).toBe(false);
-  const count = requests.length;
-  await pilot.waitForTimeout(2200);
-  await pilot.locator("#mode-toggle").click();
-  await pilot.waitForTimeout(2200);
-  expect(requests.length).toBe(count);
-  expect(await pilot.locator("#share").textContent()).toBe("Connect game");
-  // The reverse order (room first, game second) also publishes.
-  await pilot.locator("#enter").click();
+  // Reconnect restarts both while preserving the same private room.
+  const count = requests.filter(r => r.page === pilot && r.path === "/state").length;
+  await pilot.locator("#reconnect").click();
   await waitText(pilot, "#squad-status", "Connected.");
-  await pilot.locator("#share").click();
+  expect(await pilot.locator("#invite").getAttribute("href")).toBe(invite);
+  expect(requests.filter(r => r.page === pilot && r.path === "/state").length).toBeGreaterThan(count);
   await waitText(viewer, "#squad-rows", "321 km/h");
-  await pilot.locator("#share").click();
-  expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("—");
-  expect(await pilot.locator("#live-map").isVisible()).toBe(false);
+  await pilot.locator("#leave").click();
+  await pilot.locator("#reconnect").click();
+  await waitText(pilot, "#feed-status", "Connected to local game instruments");
+  expect(await pilot.locator("#squad-status").textContent()).toContain("Disconnected");
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
   expect(requests.every(r => ["/state", "/indicators", "/map_info.json", "/map.img", "/gamechat"].includes(r.path))).toBe(true);
 }, 90000);
 
-test("chat is opt-in, local, incremental and recovers without inventing sightings", async () => {
+test("chat is local, incremental and recovers without inventing sightings", async () => {
   browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   const context = await browser.newContext();
   const pilot = await context.newPage(), viewer = await context.newPage();
@@ -225,28 +243,21 @@ test("chat is opt-in, local, incremental and recovers without inventing sighting
     requests.push({ page: req.frame().page(), path, cursor: url.searchParams.get("lastId") });
     if (path === "/map.img") return void await route.fulfill({ status: 200, contentType: "image/png", body: image });
     if ((path === "/gamechat" && failChat) || (path === "/map_info.json" && failMap)) return void await route.fulfill({ status: 503, headers: { "Access-Control-Allow-Origin": "*" }, body: "unavailable" });
-    if (path === "/gamechat" && stallChat) {
+    if (path === "/gamechat" && stallChat && req.frame().page() === pilot) {
       chatStalled = true;
       await new Promise(resolve => setTimeout(resolve, 2500));
       try { await route.fulfill({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify([{ id: 999, msg: "Attack Stale(Plane)!", sender: "Scout", enemy: false }]) }); } catch { /* stopped request */ }
       return;
     }
-    const body = path === "/gamechat" ? [...buffer.filter(m => m.id > Number(url.searchParams.get("lastId"))), ...buffer.filter(m => m.id === Number(url.searchParams.get("lastId")))]
+    const body = path === "/gamechat" ? req.frame().page() === viewer ? [] : [...buffer.filter(m => m.id > Number(url.searchParams.get("lastId"))), ...buffer.filter(m => m.id === Number(url.searchParams.get("lastId")))]
       : path === "/map_info.json" ? generation === null ? { valid: false } : { valid: true, map_generation: generation }
       : path === "/state" ? { valid: true, "IAS, km/h": 100 }
       : path === "/indicators" ? { valid: true, army: "air", type: "plane" } : null;
     await route.fulfill({ status: body ? 200 : 404, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(body) });
   });
   await pilot.goto(origin); await viewer.goto(origin);
-  await pilot.locator("#mode-toggle").click();
-  await pilot.locator('#sighting-rows button[data-report="1"]').click();
-  expect(await pilot.locator(".aircraft").isVisible()).toBe(true);
-  await pilot.locator("#mode-toggle").click();
-  expect(await pilot.locator(".aircraft").isVisible()).toBe(false);
   await pilot.locator("#enter").click(); await waitText(pilot, "#squad-status", "Connected.");
   await viewer.goto((await pilot.locator("#invite").getAttribute("href"))!); await viewer.locator("#enter").click(); await waitText(viewer, "#squad-status", "Connected.");
-  expect(requests.length).toBe(0);
-  await pilot.locator("#share").click();
   await waitText(pilot, "#chat-list", "Old(P-40)");
   expect(await pilot.locator("#chat-list time").first().textContent()).toBe("—");
   expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
@@ -267,7 +278,6 @@ test("chat is opt-in, local, incremental and recovers without inventing sighting
   expect(await pilot.locator("#chat-list").getAttribute("tabindex")).toBe("0");
   expect(requests.some(r => r.path === "/gamechat" && r.cursor === "10")).toBe(true);
   await pilot.getByRole("button", { name: "Canniballistic" }).click();
-  expect(await pilot.locator(".aircraft").isVisible()).toBe(false);
   expect(await pilot.locator("#selected-grid").textContent()).toBe("D4");
   expect(await pilot.locator("#selected-reporter").textContent()).toContain("Scout");
   await pilot.getByRole("button", { name: "Canniballistic" }).focus();
@@ -280,7 +290,7 @@ test("chat is opt-in, local, incremental and recovers without inventing sighting
   expect(await pilot.locator("#sighting-rows tr").count()).toBe(2);
   expect(await viewer.locator("#chat-list").textContent()).not.toContain("Canniballistic");
   expect(sent.join(" ")).not.toContain("Canniballistic");
-  expect(requests.some(r => r.page === viewer)).toBe(false);
+  expect(requests.some(r => r.page === viewer)).toBe(true);
   failMap = true; failChat = true;
   await waitText(pilot, "#chat-subtitle", "retrying");
   await waitText(pilot, "#map-status", "Retrying");
@@ -309,21 +319,114 @@ test("chat is opt-in, local, incremental and recovers without inventing sighting
   generation = 3;
   await pilot.waitForFunction(() => (document.querySelector("#live-map") as HTMLImageElement).src.endsWith("?gen=3"));
   expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
+  buffer.push({ id: 5, msg: "Attack BeforeRefresh(Plane)!", sender: "Scout", enemy: false, mode: "Team" });
+  await waitText(pilot, "#sighting-rows", "BeforeRefresh");
   stallChat = true;
   while (!chatStalled) await pilot.waitForTimeout(50);
-  await pilot.locator("#share").click();
+  stallChat = false;
+  await pilot.locator("#reconnect").click();
+  expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
   await pilot.waitForTimeout(2700);
   expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
-  expect(await pilot.locator("#chat-list").textContent()).toContain("disconnected");
   expect(await pilot.locator("#chat-list").textContent()).not.toContain("Stale");
-  stallChat = false;
-  await pilot.locator("#share").click(); await waitText(pilot, "#chat-list", "NoMap");
-  await pilot.locator("#mode-toggle").click();
-  const count = requests.length;
-  await pilot.waitForTimeout(2300);
-  expect(requests.length).toBe(count);
-  await pilot.locator("#mode-toggle").click();
-  expect(await pilot.locator("#chat-list").textContent()).toContain("disconnected");
+  await waitText(pilot, "#chat-list", "NoMap");
   expect(requests.every(r => ["/state", "/indicators", "/map_info.json", "/map.img", "/gamechat"].includes(r.path))).toBe(true);
   await context.close();
 }, 90000);
+
+test("game retries transient errors and permission denial requires reconnect", async () => {
+  browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  let failing = true, stateRequests = 0;
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.permissions, "query", { value: async () => ({ state: (window as any).denied ? "denied" : "prompt" }) });
+  });
+  await page.route("http://127.0.0.1:8111/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/state") stateRequests++;
+    if (failing) return void await route.fulfill({ status: 503, headers: { "Access-Control-Allow-Origin": "*" } });
+    const body = path === "/state" ? { valid: true, "IAS, km/h": 123 }
+      : path === "/indicators" ? { valid: false } : path === "/gamechat" ? [] : { valid: false };
+    await route.fulfill({ contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(body) });
+  });
+  await page.goto(origin);
+  await waitText(page, "#feed-status", "retrying");
+  failing = false;
+  await waitText(page, "#feed-status", "Connected to local game instruments");
+  expect(stateRequests).toBeGreaterThanOrEqual(2);
+  await page.evaluate(() => { (window as any).denied = true; });
+  failing = true;
+  await waitText(page, "#feed-status", "Loopback access denied");
+  expect(await page.locator("#map-status").textContent()).toContain("loopback access denied");
+  expect(await page.locator("#feed-status").textContent()).toContain("site settings");
+  expect(await page.locator("#feed-status").textContent()).toContain("Reconnect");
+  const deniedCount = stateRequests;
+  await page.waitForTimeout(2200);
+  expect(stateRequests).toBe(deniedCount);
+  failing = false;
+  await page.evaluate(() => { (window as any).denied = false; });
+  await page.locator("#reconnect").click();
+  await waitText(page, "#feed-status", "Connected to local game instruments");
+  expect(await page.locator('[data-value="ias"]').textContent()).toBe("123");
+  await context.close();
+}, 30000);
+
+test("reconnect preserves a requested room through joining or failure and ignores old sockets", async () => {
+  browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    class FakeSocket extends EventTarget {
+      static OPEN = 1;
+      readyState = 1;
+      bufferedAmount = 0;
+      constructor(public url: string, public protocols: string[]) {
+        super();
+        if (String(url).includes("/api/squad")) ((window as any).sockets ??= []).push(this);
+      }
+      send() {}
+      close() { this.readyState = 3; }
+    }
+    (window as any).WebSocket = FakeSocket;
+  });
+  await page.route("http://127.0.0.1:8111/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    await route.fulfill({ contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(path === "/gamechat" ? [] : { valid: false }) });
+  });
+  await page.goto(`${origin}/#room=0123456789abcdef0123456789abcdef`);
+  await waitText(page, "#enter", "Join squad");
+  await page.evaluate(() => { location.hash = ""; });
+  await waitText(page, "#enter", "Create squad");
+  await page.locator("#reconnect").click();
+  expect(await page.evaluate(() => ((window as any).sockets ?? []).length)).toBe(0);
+  await page.locator("#enter").click();
+  expect(await page.locator("#squad-status").textContent()).toContain("Connecting");
+  await page.locator("#reconnect").click();
+  expect(await page.evaluate(() => (window as any).sockets.length)).toBe(2);
+  expect(await page.evaluate(() => (window as any).sockets[0].protocols[1] === (window as any).sockets[1].protocols[1])).toBe(true);
+  await page.evaluate(() => {
+    const sockets = (window as any).sockets;
+    const welcome = JSON.stringify({ type: "welcome", selfId: "old", members: [{ id: "old", name: "Stale member", sample: null }] });
+    sockets[0].dispatchEvent(new MessageEvent("message", { data: welcome }));
+    sockets[0].dispatchEvent(new Event("close"));
+  });
+  expect(await page.locator("#squad-status").textContent()).toContain("Connecting");
+  expect(await page.locator("#squad-rows").textContent()).not.toContain("Stale member");
+  await page.evaluate(() => (window as any).sockets[1].dispatchEvent(new Event("close")));
+  expect(await page.locator("#squad-status").textContent()).toContain("disconnected");
+  await page.locator("#reconnect").click();
+  expect(await page.evaluate(() => (window as any).sockets.length)).toBe(3);
+  expect(await page.evaluate(() => (window as any).sockets[1].protocols[1] === (window as any).sockets[2].protocols[1])).toBe(true);
+  await page.evaluate(() => {
+    const socket = (window as any).sockets[2];
+    socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ type: "welcome", selfId: "new", members: [{ id: "new", name: "Pilot", sample: null }] }) }));
+  });
+  await waitText(page, "#squad-status", "Connected.");
+  await page.locator("#leave").click();
+  await page.locator("#reconnect").click();
+  expect(await page.evaluate(() => (window as any).sockets.length)).toBe(3);
+  await page.locator("#enter").click();
+  expect(await page.evaluate(() => (window as any).sockets[3].protocols[1] === (window as any).sockets[2].protocols[1])).toBe(true);
+  await context.close();
+}, 30000);

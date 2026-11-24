@@ -62,7 +62,7 @@ async function permissionDenied(): Promise<boolean> {
   }
 }
 
-// Start this from a user gesture; calling it is the opt-in to read the local game.
+// The dashboard starts polling on page load and aborts it on reconnect.
 export function watchTelemetry(onUpdate: (update: FeedUpdate) => void): () => void {
   const stop = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;

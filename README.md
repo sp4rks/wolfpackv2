@@ -1,6 +1,6 @@
 # Wolf Pack
 
-An opt-in, browser-only War Thunder aircraft feed and invite-only squad relay.
+An automatic, browser-only War Thunder aircraft feed and invite-only squad relay.
 The Spotter’s Index UI follows the approved readability design snapshot from
 `designs/wolfpack-v2`, based on revision
 `7e3890382ae5b7a0af7b34e503e43255786f65a6` (snapshot CSS SHA `effa21d8`,
@@ -31,17 +31,19 @@ For the browser test, start the dev server with
 override `/usr/bin/chromium`). Route fixtures intercept every game request;
 the test does not use or bind the actual game's port.
 
-Open `http://127.0.0.1:5173`. On the game computer, press **Connect game**
-and permit loopback access if prompted. Set a player name in Settings, create
-a squad, and copy the invite to a viewer. Connecting and joining can happen in
-either order. Joining, saving settings, and opening a fresh viewer never start
-game reads. Viewers do not need War Thunder. Leaving a squad leaves the local
-game connection running; **Disconnect game** stops local reads and clears the
-published instruments. The endpoint is fixed and read-only.
+Open `http://127.0.0.1:5173`. Every open page starts game reads automatically;
+permit loopback access if prompted. Viewers can use the squad without a local
+game, though their own game feed will retry. Set a player name in Settings,
+create a squad, and copy the invite to a viewer, who must choose to join.
+Leaving a squad leaves the local game connection running. The reconnect icon
+restarts game reads and reconnects a requested squad; it does not join an
+unrequested invite or rejoin after leaving. If loopback permission is denied,
+allow it in browser site settings and use reconnect. The endpoint is fixed and
+read-only.
 
-## Real and sample views
+## Dashboard
 
-Real view is the default. It reads map metadata locally and displays the game's
+The dashboard reads map metadata locally and displays the game's
 map image directly when a valid generation is available. The image keeps its
 native aspect ratio. No live player or other object markers are displayed;
 awards and out-of-action status are unavailable.
@@ -52,8 +54,8 @@ callouts create local reports with the time Wolf Pack received them. Reports
 show only supplied grid and altitude, not an exact map position. Other
 languages and arbitrary chat are not parsed. On temporary failure, previous
 messages and reports remain historical while chat retries. Reports clear on
-known map changes, game-reported invalid map, ID restart, or disconnect.
-Own-aircraft readings appear after connecting the game, even without a squad.
+known map changes, game-reported invalid map, ID restart, or reconnect.
+Own-aircraft readings appear when available, even without a squad.
 The device-local **Share flight instruments with squad** setting defaults on:
 when both game and squad are connected, allowlisted instruments are published.
 Turning it off clears the squad's copy without stopping local readings or map.
@@ -65,12 +67,7 @@ not a true flight-path angle. Water/engine temperature is deliberately labeled
 generically: the existing wire field can contain either the state water
 temperature or the indicators engine-temperature fallback.
 
-**Explore sample view** explicitly disconnects and stops sharing. Everything in
-that view, including ownship and squad markers, reports, chat, awards and
-out-of-action state, is fictional. It makes no game reads or telemetry sends.
-Returning to real view leaves game and squad disconnected; the saved publishing
-preference remains unchanged, but nothing is sent until both are reconnected. The selected
-sighting is linked to its map marker and report; unknown values remain unknown.
+Selecting a sighting shows its reported details; unknown values remain unknown.
 Display units and the show-own choice are saved locally; distance is saved but
 not used. The squad name is a local label, not the bearer invite or room key.
 
@@ -78,16 +75,16 @@ not used. The squad name is a local label, not the bearer invite or room key.
 
 - `src/client/telemetry.ts`: `watchTelemetry` starts and stops polling;
   `normalizeTelemetry` converts the two game responses to nullable fields.
-  Call `watchTelemetry` only from an explicit game-connection gesture.
-- `src/client/map.ts` polls only map metadata after connecting. The browser
+  The dashboard starts it on page initialization and restarts it on reconnect.
+- `src/client/map.ts` polls only map metadata. The browser
   loads `/map.img?gen=N` in an ordinary image element, without CORS or canvas.
-- `src/client/chat.ts` polls the fixed `/gamechat?lastId=N` endpoint only after
-  connecting, and parses supported English target callouts locally.
+- `src/client/chat.ts` polls the fixed `/gamechat?lastId=N` endpoint and parses
+  supported English target callouts locally.
 - `src/client/squad.ts`: `inviteKey`, `inviteUrl`, and `connectSquad` provide
   connection status, room events, publication and close. `src/shared/protocol.ts`
   defines messages and the allowlisted telemetry shape.
-- `src/client/dashboard.ts`, `derived.ts`, `sample.ts`, and `index.html`
-  implement the presentation, derived units, fictional data, and interaction
+- `src/client/dashboard.ts`, `derived.ts`, and `index.html`
+  implement the presentation, derived units, and interaction
   with the existing transport. The server assigns connection identities;
   the client clears local state on disconnect and expires samples using
   `SAMPLE_LIFETIME_MS`.
@@ -100,7 +97,7 @@ not used. The squad name is a local label, not the bearer invite or room key.
 Only `/state`, `/indicators`, `/map_info.json`, `/gamechat` and the map image
 are requested from `127.0.0.1:8111`; map-object and opponent endpoints are not requested.
 Chat and derived sightings stay in the browser's memory, are never sent to the
-squad or server, and are cleared on disconnect or entering sample view.
+squad or server, and are cleared when game reads restart.
 The normalizer and relay allowlist own-aircraft instrument fields. Missing,
 invalid or non-finite values are ignored. Game variants and aircraft expose different fields, and a
 `valid` response is not proof that a player is in a battle.

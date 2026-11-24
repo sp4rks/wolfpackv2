@@ -3,9 +3,10 @@ import { normalizeTelemetry, readTelemetry } from "../src/client/telemetry.ts";
 import { createRoomKey, isRoomKey, parseClientMessage } from "../src/shared/protocol.ts";
 import { inviteKey, inviteUrl } from "../src/client/squad.ts";
 import { addHistory, altitude, bearing, climb, climbAngle, defaults, emptyHistories, preferences, speed, temperature } from "../src/client/derived.ts";
-import { sampleOwn } from "../src/client/sample.ts";
 import { normalizeChat, parseSighting, stripGameColors } from "../src/client/chat.ts";
 import { mapGeneration } from "../src/client/map.ts";
+
+const sampleOwn = { aircraft: "test", iasKph: 286, tasKph: 304, altitudeM: 2450, headingDeg: 74, climbMps: 4.2, throttlePct: 87, waterTempC: 91, oilTempC: 78, propPitch: null, manifoldPressure: null };
 
 describe("dashboard readings and settings", () => {
   test("sharing defaults on and survives validated saved preferences", () => {
