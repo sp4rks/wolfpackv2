@@ -100,8 +100,20 @@
             role="group"
             aria-label="Local War Thunder operating map." id="map"
           >
-            <img id="live-map" alt="War Thunder operating map" hidden>
+            <div id="live-map-frame" hidden>
+              <img id="live-map" alt="War Thunder operating map" hidden>
+              <div id="live-contacts" aria-hidden="true"></div>
+            </div>
             <p id="map-status" role="status">Connecting to the local game map…</p>
+          </div>
+          <div class="map-contacts-summary">
+            <div class="live-legend" aria-label="Game map aircraft legend">
+              <span><i class="live-key own-key"></i> Ownship</span>
+              <span><i class="live-key friendly-key"></i> Friendly</span>
+              <span><i class="live-key enemy-key"></i> Enemy</span>
+            </div>
+            <p id="contacts-status" role="status">Waiting for the local game map and aircraft feed.</p>
+            <p>Current aircraft returned by the game map; visibility depends on game mode. Not linked to radio reports.</p>
           </div>
           <div class="selected-report" id="selected-report" hidden>
             <div class="selected-text">

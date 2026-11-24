@@ -6,6 +6,7 @@ import type { Member, ServerMessage, Telemetry } from "../shared/protocol.ts";
 import { connectSquad, inviteKey, inviteUrl } from "./squad.ts";
 import { GAME_ORIGIN, watchTelemetry } from "./telemetry.ts";
 import { watchMap } from "./map.ts";
+import type { Contact } from "./map.ts";
 import { parseSighting, stripGameColors, watchChat } from "./chat.ts";
 import type { ChatMessage, Sighting } from "./chat.ts";
 import { addHistory, altitude, bearing, choices, climb, climbAngle, climbUnit, defaults, emptyHistories, preferences, speed, speedUnit, temperature, tempUnit } from "./derived.ts";
@@ -39,6 +40,9 @@ let selectedKey: string | null = null;
 let knownMap: number | null = null;
 let mapAt = 0;
 let mapGeneration: number | null = null;
+let contacts: Contact[] | null = null;
+let contactsAt = 0;
+let contactsStatus: "waiting" | "unavailable" | "ready" = "waiting";
 let own: Telemetry | null = null;
 let ownAt = 0;
 let published = false;
@@ -199,18 +203,46 @@ function syncPublishing(): void {
   else if (published) { squad?.publish(null); published = false; }
   renderPublishing();
 }
+function renderContacts(): void {
+  const loaded = !mapImage.hidden;
+  const layer = $("#live-contacts");
+  layer.replaceChildren();
+  if (loaded && contacts) for (const contact of contacts) {
+    const marker = document.createElement("span");
+    marker.className = `live-contact ${contact.kind}`;
+    marker.style.left = `${contact.x * 100}%`; marker.style.top = `${contact.y * 100}%`;
+    layer.append(marker);
+  }
+  visible("#live-map-frame", loaded);
+  if (contactsStatus === "unavailable" && mapGeneration !== null) text("#contacts-status", "Aircraft feed unavailable; retrying.");
+  else if (!loaded || contactsStatus !== "ready" || !contacts) text("#contacts-status", "Waiting for the local game map and aircraft feed.");
+  else {
+    const ownCount = contacts.filter(contact => contact.kind === "own").length;
+    const friendlyCount = contacts.filter(contact => contact.kind === "friendly").length;
+    const enemyCount = contacts.filter(contact => contact.kind === "enemy").length;
+    text("#contacts-status", contacts.length
+      ? `Displayed: ${ownCount} ownship · ${friendlyCount} friendly · ${enemyCount} enemy aircraft (limit 200).`
+      : "No recognized aircraft in the current game map feed.");
+  }
+}
+function clearContacts(status: "waiting" | "unavailable" = "waiting"): void {
+  contacts = null; contactsAt = 0; contactsStatus = status; renderContacts();
+}
 function clearMap(message: string): void {
   mapAt = 0; mapGeneration = null;
   mapImage.hidden = true; mapImage.removeAttribute("src");
+  clearContacts();
   text("#map-status", message); visible("#map-status", true);
 }
 mapImage.addEventListener("load", () => {
   if (!stopMap || mapGeneration === null) return;
   mapImage.hidden = false; visible("#map-status", false);
+  renderContacts();
 });
 mapImage.addEventListener("error", () => {
   if (!stopMap) return;
   mapImage.hidden = true; mapImage.removeAttribute("src");
+  clearContacts();
   text("#map-status", "Could not load the local game map. Retrying…"); visible("#map-status", true);
 });
 function stopGame(): void {
@@ -303,9 +335,16 @@ function startGame(): void {
     mapAt = performance.now();
     if (mapGeneration !== update.generation || !mapImage.hasAttribute("src")) {
       mapGeneration = update.generation; mapImage.hidden = true;
+      clearContacts();
       text("#map-status", "Loading local game map…"); visible("#map-status", true);
       mapImage.src = `${GAME_ORIGIN}/map.img?gen=${update.generation}`;
     }
+  }, update => {
+    if (mapGeneration !== update.generation || !mapImage.hasAttribute("src")) return;
+    contacts = update.status === "ready" ? update.contacts : null;
+    contactsAt = contacts ? performance.now() : 0;
+    contactsStatus = update.status;
+    renderContacts();
   });
 }
 $("#reconnect").addEventListener("click", () => {
@@ -380,6 +419,7 @@ setInterval(() => {
     text("#feed-status", "Readings are stale; waiting for the local game."); renderInstruments(); changed = true;
   }
   if (mapAt && performance.now() - mapAt >= SAMPLE_LIFETIME_MS) clearMap("Game map is stale; waiting for metadata.");
+  if (contactsAt && performance.now() - contactsAt >= SAMPLE_LIFETIME_MS) clearContacts("unavailable");
   if (changed) renderSquad();
   updateAges();
 }, 1000);

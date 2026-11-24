@@ -157,6 +157,111 @@ test("responsive live layout, accessible icon controls and native map aspect", a
   } finally { await instance.close(); }
 }, 30000);
 
+test("local map aircraft contacts are anonymous, current, generation-bound and independent of radio reports", async () => {
+  const instance = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  const context = await instance.newContext();
+  try {
+    await referenceFixtures(context);
+    const pilot = await context.newPage(), viewer = await context.newPage();
+    const calls: Array<{ page: Page; path: string }> = [];
+    let generation: number | null = null;
+    let failObjects = false;
+    let holdObjects = false;
+    let releaseObjects: (() => void) | undefined;
+    let notifyHeld: (() => void) | undefined;
+    let held = new Promise<void>(resolve => { notifyHeld = resolve; });
+    const chat: Array<{ id: number; msg: string; sender: string; enemy: boolean; mode: string }> = [];
+    const initialObjects = [
+      { type: "aircraft", icon: "Player", color: "#24D921", x: .25, y: .75 },
+      { type: "aircraft", icon: "Fighter", "color[]": [24, 90, 255], x: .75, y: .25 },
+      { type: "aircraft", icon: "Fighter", color: "#fa3200", x: .5, y: .6 },
+      { type: "ground_model", color: "#fa3200", x: .5, y: .5 },
+    ];
+    let objects: unknown = initialObjects;
+    await context.addInitScript(() => localStorage.setItem("wolfpack-v2-preferences", JSON.stringify({ playerStats: false })));
+    await context.route("http://127.0.0.1:8111/**", async route => {
+      const req = route.request(), path = new URL(req.url()).pathname, page = req.frame().page();
+      calls.push({ page, path });
+      if (path === "/map.img") return void await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400"/>' });
+      if (path === "/map_obj.json" && holdObjects) {
+        const snapshot = objects;
+        notifyHeld?.();
+        await new Promise<void>(resolve => { releaseObjects = resolve; });
+        try { await route.fulfill({ json: snapshot, headers: { "Access-Control-Allow-Origin": "*" } }); } catch { /* aborted on reconnect */ }
+        return;
+      }
+      if (path === "/map_obj.json" && failObjects) return void await route.fulfill({ status: 503, headers: { "Access-Control-Allow-Origin": "*" } });
+      const body = path === "/map_info.json" ? page === viewer || generation === null ? { valid: false } : { map_generation: generation }
+        : path === "/map_obj.json" ? objects : path === "/gamechat" ? chat : { valid: false };
+      await route.fulfill({ json: body, headers: { "Access-Control-Allow-Origin": "*" } });
+    });
+    await pilot.goto(origin); await viewer.goto(origin);
+    await waitText(pilot, "#map-status", "waiting for a valid map");
+    expect(calls.some(call => call.path === "/map_obj.json")).toBe(false);
+    holdObjects = true; generation = 1;
+    await held;
+    await waitVisible(pilot, "#live-map", true);
+    expect(await pilot.locator(".live-contact").count()).toBe(0);
+    holdObjects = false; releaseObjects!();
+    await waitText(pilot, "#contacts-status", "1 ownship · 1 friendly · 1 enemy");
+    expect(await pilot.locator(".live-contact").count()).toBe(3);
+    expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
+    expect(calls.some(call => call.page === viewer && call.path === "/map_obj.json")).toBe(false);
+    await waitText(pilot, "#chat-subtitle", "initial history is undated");
+    chat.push({ id: 1, msg: "Attack RadioTarget(Plane)! [D4, alt. 4 200 m]", sender: "Scout", enemy: false, mode: "Team" });
+    await waitText(pilot, "#sighting-rows", "RadioTarget");
+    expect(await pilot.locator("#selected-player").textContent()).toBe("RadioTarget");
+    expect(await pilot.locator("#selected-grid").textContent()).toBe("D4");
+    for (const [width, height] of [[1440, 900], [800, 600], [390, 844]]) {
+      await pilot.setViewportSize({ width, height });
+      const position = await pilot.evaluate(() => {
+        const image = document.querySelector("#live-map")!.getBoundingClientRect();
+        const marker = document.querySelector(".live-contact.friendly")!.getBoundingClientRect();
+        const map = document.querySelector("#map")!.getBoundingClientRect();
+        return { x: (marker.left + marker.width / 2 - image.left) / image.width, y: (marker.top + marker.height / 2 - image.top) / image.height, ratio: image.width / image.height, width: image.width / map.width };
+      });
+      expect(position.ratio).toBeCloseTo(2, 2);
+      expect(position.width).toBeCloseTo(1, 2);
+      expect(position.x).toBeCloseTo(.75, 2); expect(position.y).toBeCloseTo(.25, 2);
+    }
+    objects = [{ type: "aircraft", icon: "Fighter", color: "#fa3200", x: .6, y: .4 }];
+    await pilot.waitForFunction(() => (document.querySelector(".live-contact.enemy") as HTMLElement | null)?.style.left === "60%");
+    expect(await pilot.locator(".live-contact").count()).toBe(1);
+    objects = [];
+    await waitText(pilot, "#contacts-status", "No recognized aircraft");
+    expect(await pilot.locator(".live-contact").count()).toBe(0);
+    failObjects = true;
+    await waitText(pilot, "#contacts-status", "feed unavailable");
+    expect(await pilot.locator("#live-map").isVisible()).toBe(true);
+    expect(await pilot.locator("#selected-player").textContent()).toBe("RadioTarget");
+    expect(await pilot.locator("#sighting-rows tr").count()).toBe(1);
+    failObjects = false; objects = initialObjects;
+    await waitText(pilot, "#contacts-status", "1 ownship · 1 friendly · 1 enemy");
+    // A response started on one map must never populate another generation.
+    holdObjects = true; releaseObjects = undefined;
+    held = new Promise<void>(resolve => { notifyHeld = resolve; });
+    await held;
+    generation = 2; objects = [];
+    holdObjects = false; releaseObjects!();
+    await pilot.waitForFunction(() => (document.querySelector("#live-map") as HTMLImageElement).src.endsWith("?gen=2"));
+    expect(await pilot.locator(".live-contact").count()).toBe(0);
+    expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
+    await waitText(pilot, "#contacts-status", "No recognized aircraft");
+    objects = initialObjects;
+    await waitText(pilot, "#contacts-status", "1 ownship · 1 friendly · 1 enemy");
+    // Cancellation cannot publish a held old response after reconnect.
+    holdObjects = true; releaseObjects = undefined;
+    held = new Promise<void>(resolve => { notifyHeld = resolve; });
+    await held;
+    generation = null;
+    await pilot.locator("#reconnect").click();
+    expect(await pilot.locator(".live-contact").count()).toBe(0);
+    holdObjects = false; releaseObjects!();
+    await waitText(pilot, "#map-status", "waiting for a valid map");
+    expect(await pilot.locator(".live-contact").count()).toBe(0);
+  } finally { await context.close(); await instance.close(); }
+}, 60000);
+
 test("automatic game polling, reconnect and squad publishing remain independent", async () => {
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   const context = await browser.newContext();
@@ -187,6 +292,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
       return;
     }
     const body = path === "/map_info.json" ? generation === null ? { valid: false } : { map_generation: String(generation) }
+      : path === "/map_obj.json" ? req.frame().page() === pilot ? [{ type: "aircraft", icon: "Fighter", color: "#fa3200", x: .5, y: .5 }] : []
       : path === "/state" ? { valid: instrumentValid && req.frame().page() === pilot, "IAS, km/h": 321, "H, m": 1000 }
       : path === "/indicators" ? { valid: instrumentValid && req.frame().page() === pilot, army: "air", type: aircraft, compass: 90 }
       : path === "/gamechat" ? []
@@ -226,6 +332,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
 
   generation = 7;
   await waitVisible(pilot, "#live-map", true);
+  await waitText(pilot, "#contacts-status", "1 enemy");
   expect(await pilot.locator("#live-map").getAttribute("src")).toBe("http://127.0.0.1:8111/map.img?gen=7");
   expect(await pilot.locator("#live-map").getAttribute("crossorigin")).toBeNull();
   expect(await pilot.locator("#live-map").evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1);
@@ -250,6 +357,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await openSquad(viewer); await viewer.locator("#enter").click();
   await waitText(viewer, "#squad-status", "Connected.");
   await waitText(viewer, "#squad-rows", "321 km/h");
+  expect(await viewer.locator(".live-contact").count()).toBe(0);
   const remoteAircraft = viewer.locator("#squad-rows tr").filter({ hasNotText: "(you)" }).locator('td[data-label="Aircraft"]');
   const viewerAircraft = viewer.locator("#squad-rows tr").filter({ hasText: "(you)" }).locator('td[data-label="Aircraft"]');
   const ownAircraft = pilot.locator("#squad-rows tr").filter({ hasText: "(you)" }).locator('td[data-label="Aircraft"]');
@@ -305,12 +413,14 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await waitText(pilot, "#map-status", "waiting for a valid map");
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
   expect(await pilot.locator("#live-map").isVisible()).toBe(false);
+  expect(await pilot.locator(".live-contact").count()).toBe(0);
   imageError = true; generation = 9;
   await waitText(pilot, "#map-status", "Could not load");
   expect(await pilot.locator("#live-map").isVisible()).toBe(false);
   imageError = false; generation = 10; instrumentValid = true;
   await waitVisible(pilot, "#live-map", true);
   await waitText(viewer, "#squad-rows", "321 km/h");
+  await waitText(pilot, "#contacts-status", "1 enemy");
 
   // Freeze fixture responses and advance the page's monotonic clock to exercise expiry.
   stalled = true;
@@ -322,6 +432,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await waitText(pilot, "#feed-status", "Readings are stale");
   await waitText(pilot, "#map-status", "Game map is stale");
   expect(await pilot.locator("#live-map").isVisible()).toBe(false);
+  expect(await pilot.locator(".live-contact").count()).toBe(0);
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("—");
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
   stalled = false;
@@ -330,6 +441,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await pilot.locator("#reconnect").click();
   await waitVisible(pilot, "#live-map", true);
   await waitText(viewer, "#squad-rows", "321 km/h");
+  await waitText(pilot, "#contacts-status", "1 enemy");
 
   // Reconnect clears current readings, history and map before new requests finish.
   stalledPaths.clear(); stalled = true;
@@ -338,6 +450,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("—");
   expect(await pilot.locator('[data-trace="ias"] svg').count()).toBe(0);
   expect(await pilot.locator("#live-map").isVisible()).toBe(false);
+  expect(await pilot.locator(".live-contact").count()).toBe(0);
   stalled = false;
   releaseStalls.splice(0).forEach(release => release());
   await pilot.locator("#reconnect").click();
@@ -362,7 +475,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await waitText(pilot, "#feed-status", "Connected to local game instruments");
   expect(await pilot.locator("#squad-status").textContent()).toContain("Disconnected");
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
-  expect(requests.every(r => ["/state", "/indicators", "/map_info.json", "/map.img", "/gamechat"].includes(r.path))).toBe(true);
+  expect(requests.every(r => ["/state", "/indicators", "/map_info.json", "/map_obj.json", "/map.img", "/gamechat"].includes(r.path))).toBe(true);
 }, 90000);
 
 test("chat is local, incremental and recovers without inventing sightings", async () => {
@@ -495,7 +608,7 @@ test("chat is local, incremental and recovers without inventing sightings", asyn
   expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
   expect(await pilot.locator("#chat-list").textContent()).not.toContain("Stale");
   await waitText(pilot, "#chat-list", "NoMap");
-  expect(requests.every(r => ["/state", "/indicators", "/map_info.json", "/map.img", "/gamechat"].includes(r.path))).toBe(true);
+  expect(requests.every(r => ["/state", "/indicators", "/map_info.json", "/map_obj.json", "/map.img", "/gamechat"].includes(r.path))).toBe(true);
   await context.close();
 }, 90000);
 

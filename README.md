@@ -28,8 +28,11 @@ Your flight instruments are shared by default when you’re connected to both th
 game and a squad. To keep them to yourself, open **Squad** in the sidebar, turn
 off **Share flight instruments with squad**, and select **Save squad preferences**.
 
-Your map and game chat stay on your computer. Sightings come from some in-game
-radio calls; they aren’t live player markers. By default, Wolf Pack sends target
+Your map, anonymous aircraft positions and game chat stay on your computer.
+The map shows current aircraft returned by the game, including friendly and
+enemy markers; visibility depends on game mode, so not every enemy is shown.
+Markers have no names and are not linked to sightings. Sightings come from some
+in-game radio calls; they aren’t live player markers. By default, Wolf Pack sends target
 names from those calls to ThunderSkill for public stats. You can turn off
 **Look up public player stats** in **Settings**.
 

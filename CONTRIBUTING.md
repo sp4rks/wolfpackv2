@@ -78,7 +78,7 @@ For routine browser checks, prefer the self-contained verifier.
 | Area | Start here |
 | --- | --- |
 | Dashboard, settings, and display units | [`index.html`](index.html), [`dashboard.ts`](src/client/dashboard.ts), [`dashboard.css`](src/client/dashboard.css), [`derived.ts`](src/client/derived.ts) |
-| Local game reads and parsing | [`telemetry.ts`](src/client/telemetry.ts) polls and normalizes instruments; [`map.ts`](src/client/map.ts) loads map metadata; [`chat.ts`](src/client/chat.ts) reads chat and parses supported English radio calls. |
+| Local game reads and parsing | [`telemetry.ts`](src/client/telemetry.ts) polls and normalizes instruments; [`map.ts`](src/client/map.ts) loads map metadata and aircraft contacts; [`chat.ts`](src/client/chat.ts) reads chat and parses supported English radio calls. |
 | Squad invites, messages, and lifecycle | [`squad.ts`](src/client/squad.ts) manages the browser connection; [`protocol.ts`](src/shared/protocol.ts) defines allowed messages; [`index.ts`](src/worker/index.ts) and [`squad-room.ts`](src/worker/squad-room.ts) route and relay them. |
 | Climb-speed references and public stats | Client: [`climb-speed.ts`](src/client/climb-speed.ts), [`player-stats.ts`](src/client/player-stats.ts). Worker: [`index.ts`](src/worker/index.ts), [`aircraft-reference.ts`](src/worker/aircraft-reference.ts), [`player-stats.ts`](src/worker/player-stats.ts). |
 | Worker and bindings | [`cloudflare.config.ts`](cloudflare.config.ts) configures assets, the custom domain, the SQLite-backed squad Durable Object, the reference database, and the lookup rate limiter. |
@@ -91,10 +91,15 @@ The Spotter’s Index layout follows the readability snapshot from
 ### Game data and the browser
 
 - The game connection is read-only and fixed to `127.0.0.1:8111`. It uses
-  `/state`, `/indicators`, `/map_info.json`, `/gamechat?lastId=N`, and
-  `/map.img?gen=N`. It does not request map-object or opponent endpoints.
-  The map uses an ordinary image element at its native aspect ratio; it shows
-  no live object markers and is never shared to the squad.
+  `/state`, `/indicators`, `/map_info.json`, `/map_obj.json`,
+  `/gamechat?lastId=N`, and `/map.img?gen=N`. It does not request opponent
+  endpoints. The map uses an ordinary image element at its native aspect ratio.
+  Its overlay shows up to 200 recognized aircraft from the current game map
+  feed: ownship, friendly (including green non-player aircraft), and enemy.
+  Visibility depends on game mode, so the feed may not contain every enemy.
+  Markers are anonymous and not joined to radio sightings, tracked, stored, or
+  shared with the squad. Object failures clear markers without clearing a
+  healthy map; generation changes and stale or invalid data clear them too.
 - The browser must allow loopback access, and the game’s JSON must permit
   cross-origin reads. The image does not need CORS. Browser version and policy
   can affect [Local Network Access](https://developer.chrome.com/blog/local-network-access)

@@ -4,7 +4,7 @@ import { createRoomKey, isRoomKey, parseClientMessage } from "../src/shared/prot
 import { inviteKey, inviteUrl } from "../src/client/squad.ts";
 import { addHistory, altitude, bearing, climb, climbAngle, defaults, emptyHistories, preferences, speed, temperature } from "../src/client/derived.ts";
 import { normalizeChat, parseSighting, stripGameColors } from "../src/client/chat.ts";
-import { mapGeneration } from "../src/client/map.ts";
+import { CONTACT_LIMIT, mapContacts, mapGeneration, watchMap } from "../src/client/map.ts";
 
 const sampleOwn = { aircraft: "test", iasKph: 286, tasKph: 304, altitudeM: 2450, headingDeg: 74, climbMps: 4.2, throttlePct: 87, waterTempC: 91, oilTempC: 78, propPitch: null, manifoldPressure: null };
 
@@ -51,6 +51,72 @@ describe("game map metadata", () => {
     for (const input of [null, {}, { valid: false, map_generation: 2 }, { valid: "true", map_generation: 1 }, { map_generation: "-1" }, { map_generation: "1?x=y" }, { map_generation: 1.5 }, { map_generation: Infinity }]) {
       expect(mapGeneration(input)).toBeNull();
     }
+  });
+  test("normalizes aircraft contacts conservatively, including real game colours", () => {
+    const aircraft = (data: object) => ({ type: "aircraft", x: .25, y: .75, icon: "Fighter", ...data });
+    expect(mapContacts([
+      aircraft({ color: "#185AFF", "color[]": [24, 90, 255] }),
+      aircraft({ color: "#145CFF" }), aircraft({ "color[]": [36, 217, 33] }),
+      aircraft({ color: "#fa3200", "color[]": [250, 50, 0] }),
+      aircraft({ icon: "Player", color: "#fa3200" }), aircraft({ icon: "Player", color: "unknown" }),
+      aircraft({ color: "#ffff00" }), aircraft({ color: "#185AFF", "color[]": [250, 50, 0] }),
+      aircraft({ color: "#185AFF", "color[]": [1, 2] }), aircraft({ color: "#185AFF00" }),
+      aircraft({ "color[]": [255, 0, -1] }), aircraft({ color: "#185AFF", x: "0.5" }),
+      aircraft({ color: "#185AFF", x: Infinity }), aircraft({ color: "#185AFF", y: NaN }),
+      aircraft({ color: "#185AFF", y: -.01 }), aircraft({ color: "#185AFF", x: 1.01 }),
+      { type: "ground_model", x: .5, y: .5, color: "#fa3200" },
+    ])).toEqual([
+      { kind: "friendly", x: .25, y: .75 }, { kind: "friendly", x: .25, y: .75 },
+      { kind: "friendly", x: .25, y: .75 }, { kind: "enemy", x: .25, y: .75 },
+      { kind: "own", x: .25, y: .75 }, { kind: "own", x: .25, y: .75 },
+    ]);
+    expect(mapContacts([])).toEqual([]);
+    expect(mapContacts({})).toBeNull();
+    expect(mapContacts(Array.from({ length: CONTACT_LIMIT + 10 }, () => aircraft({ color: "#fa3200", x: 0, y: 1 })))?.length).toBe(CONTACT_LIMIT);
+  });
+  test("map reads are bounded, sequential, and never dispatch after abort", async () => {
+    const original = globalThis.fetch;
+    const calls: Array<{ url: string; options: RequestInit & { targetAddressSpace?: string } }> = [];
+    let release: ((value: Response) => void) | undefined;
+    try {
+      globalThis.fetch = ((url: string | URL | Request, options: RequestInit) => {
+        calls.push({ url: String(url), options });
+        if (String(url).endsWith("/map_obj.json")) return new Promise<Response>(resolve => { release = resolve; });
+        return Promise.resolve(Response.json({ map_generation: 7 }));
+      }) as typeof fetch;
+      const updates: string[] = [];
+      const stop = watchMap(update => updates.push(update.status), update => updates.push(update.status));
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      expect(calls.map(c => c.url)).toEqual(["http://127.0.0.1:8111/map_info.json", "http://127.0.0.1:8111/map_obj.json"]);
+      expect(calls.every(({ options }) => options.mode === "cors" && options.credentials === "omit" && options.cache === "no-store" && options.redirect === "error" && options.targetAddressSpace === "loopback" && options.signal)).toBe(true);
+      expect(updates).toEqual(["ready"]);
+      stop();
+      release!(Response.json([]));
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      expect(updates).toEqual(["ready"]);
+      expect(calls).toHaveLength(2);
+    } finally { globalThis.fetch = original; }
+  });
+  test("map metadata recheck preserves invalid, waiting and unreachable outcomes", async () => {
+    const original = globalThis.fetch;
+    try {
+      for (const [response, expected] of [[{ valid: false }, "invalid"], [{}, "waiting"], [null, "unreachable"]] as const) {
+        const calls: string[] = [], updates: string[] = [];
+        let notify: (() => void) | undefined;
+        const done = new Promise<void>(resolve => { notify = resolve; });
+        globalThis.fetch = ((url: string | URL | Request) => {
+          const path = new URL(String(url)).pathname;
+          calls.push(path);
+          if (calls.length === 3 && response === null) return Promise.reject(new Error("offline"));
+          return Promise.resolve(Response.json(path === "/map_obj.json" ? [] : calls.length === 1 ? { map_generation: 4 } : response));
+        }) as typeof fetch;
+        const stop = watchMap(update => { updates.push(update.status); if (updates.length === 2) notify!(); }, () => updates.push("contacts"));
+        await done;
+        stop();
+        expect(calls).toEqual(["/map_info.json", "/map_obj.json", "/map_info.json"]);
+        expect(updates).toEqual(["ready", expected]);
+      }
+    } finally { globalThis.fetch = original; }
   });
 });
 
