@@ -11,7 +11,9 @@
     "deploy": "cf deploy",
     "check": "cf workers types && tsc -p tsconfig.json && tsc -p tsconfig.client.json && bun test test/unit.test.ts",
     "test:room": "bun test ./test/room.integration.ts",
-    "test:browser": "bun test ./test/browser.integration.ts"
+    "test:browser": "bun test ./test/browser.integration.ts",
+    "test:dashboard-runner": "bun test ./test/verify-dashboard.test.ts",
+    "verify:dashboard": "node ./test/verify-dashboard.mjs"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "2.0.0-rc.0",

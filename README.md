@@ -15,10 +15,27 @@ Requires Bun and a Node version supported by `package.json`. Install with
 bun run check                    # generated Worker types, TypeScript, unit tests
 bun run build                    # local build only
 bun run cf deploy --dry-run      # build and validate; no API request or upload
-bun run dev -- --host 127.0.0.1 --port 5173
+bun run verify:dashboard         # full dashboard browser fixture suite
 ```
 
-In a second terminal, while the dev server runs:
+The dashboard verifier also needs Playwright's local Chromium at
+`/usr/bin/chromium`, or `CHROMIUM_PATH` set to a Chromium executable. For a
+focused scenario during iteration, use Bun's test-name regex:
+
+```sh
+bun run verify:dashboard --test-name-pattern 'responsive live layout'
+```
+
+An empty or unmatched pattern fails. The verifier starts its own local Vite
+and Worker dev server on an OS-assigned loopback port, waits for health, and
+shuts it down afterwards. It overrides `TEST_ORIGIN` and uses ephemeral local
+Worker state. The browser fixtures intercept game requests; this command does
+not contact the live game or production and does not deploy. Run the full
+`bun run verify:dashboard` before integration. To exercise the verifier's
+failure, isolation and cleanup paths, run `bun run test:dashboard-runner`.
+
+For manual integration testing, start `bun run dev -- --host 127.0.0.1 --port 5173`,
+then in a second terminal:
 
 ```sh
 bun run test:room                # real local Worker and Durable Object sockets
