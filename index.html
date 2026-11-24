@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>WolfPack diagnostics</title>
+  </head>
+  <body>
+    <main>
+      <h1>WolfPack diagnostics</h1>
+      <p>Temporary controls for testing the game feed and squad relay.</p>
+      <form id="squad">
+        <label for="name">Display name</label>
+        <input id="name" required maxlength="32" autocomplete="nickname">
+        <button id="enter">Create squad</button>
+        <button id="leave" type="button" disabled>Leave squad</button>
+      </form>
+      <p id="squad-status" role="status">Not connected.</p>
+      <p><a id="invite" hidden>Squad invite link</a></p>
+      <button id="share" type="button" disabled>Share game instruments</button>
+      <p id="feed-status" role="status">Not sharing game instruments.</p>
+      <ul id="members" aria-label="Squad members"></ul>
+    </main>
+    <script type="module" src="/src/client/diagnostics.ts"></script>
+  </body>
+</html>
