@@ -9,6 +9,64 @@ afterAll(async () => { await browser?.close(); });
 const waitText = (page: Page, selector: string, text: string) => page.waitForFunction(([s, t]) => document.querySelector(s)?.textContent?.includes(t), [selector, text], { timeout: 9000 });
 const waitVisible = (page: Page, selector: string, visible: boolean) => page.waitForFunction(([s, v]) => (document.querySelector(s) as HTMLElement)?.hidden === !v, [selector, visible] as const, { timeout: 9000 });
 
+test("readability layout, keyboard selection and native map aspect", async () => {
+  const instance = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  try {
+    const page = await instance.newPage();
+    await page.route("http://127.0.0.1:8111/**", async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === "/map.img") return route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="1024"/>' });
+      return route.fulfill({ contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(path === "/map_info.json" ? { map_generation: 1 } : { valid: false }) });
+    });
+    await page.goto(origin);
+    await page.locator("#mode-toggle").click();
+    expect(await page.locator(".primary-readings > div").count()).toBe(4);
+    expect(await page.locator(".secondary-readings > div").count()).toBe(4);
+    await page.locator('.map-marker[data-report="0"]').focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Enter");
+    expect(await page.locator("#selected-grid").textContent()).toBe("C5");
+    for (const [width, height] of [[1440, 900], [1024, 768], [800, 600], [768, 1024], [390, 844]]) {
+      await page.setViewportSize({ width, height });
+      const layout = await page.evaluate(() => {
+        const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        return {
+          map: rect("#map").toJSON(), report: rect("#selected-report").toJSON(),
+          legend: rect("#map-legend").toJSON(), primary: rect(".instruments").toJSON(),
+          support: rect(".supporting").toJSON(), chat: rect(".chat").toJSON(),
+          brand: rect(".brand").toJSON(), title: rect(".mast-title h1").toJSON(),
+          settings: rect("#open-settings").toJSON(), ias: getComputedStyle(document.querySelector('[data-value="ias"]')!).fontSize,
+        };
+      });
+      expect(layout.report.top).toBeGreaterThanOrEqual(layout.map.bottom - 1);
+      expect(layout.legend.top).toBeGreaterThanOrEqual(layout.report.bottom - 1);
+      if (width >= 701 && width > height) {
+        expect(layout.primary.left).toBeGreaterThan(layout.map.right - 1);
+        expect(layout.chat.left).toBeGreaterThan(layout.map.right - 1);
+      } else {
+        expect(layout.primary.bottom).toBeLessThanOrEqual(layout.map.top);
+        expect(layout.support.top).toBeGreaterThanOrEqual(layout.legend.bottom);
+      }
+      if (width === 1440) {
+        expect(layout.ias).toBe("52px");
+        expect(layout.brand.right).toBeLessThan(layout.title.left);
+        expect(layout.title.right).toBeLessThan(layout.settings.left);
+      }
+      await page.evaluate(() => { document.documentElement.style.fontSize = "24px"; });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.locator("#mode-toggle").click();
+    await page.locator("#share").click();
+    await waitVisible(page, "#live-map", true);
+    const ratio = await page.locator("#live-map").evaluate(el => { const r = el.getBoundingClientRect(); return r.width / r.height; });
+    expect(ratio).toBeCloseTo(2, 2);
+    expect(await page.locator(".map-art").isVisible()).toBe(false);
+    expect(await page.locator(".sample-marker:visible").count()).toBe(0);
+  } finally { await instance.close(); }
+}, 30000);
+
 test("local map and default publishing stay separate, opt-in and isolated", async () => {
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   const context = await browser.newContext();

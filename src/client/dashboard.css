@@ -1,17 +1,17 @@
 :root {
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #273e45;
   background: #253e49;
   font-synthesis: none;
-  font-size: 14px;
   --ink: #273e45;
   --muted: #455e57;
   --cream: #f3efe2;
   --line: #d7d7c7;
   --rust: #a4492c;
   --navy: #253e49;
+  --type-reading: 3.25rem;
+  --type-key: 1.75rem;
+  --type-support: 1.5rem;
 }
 * {
   box-sizing: border-box;
@@ -58,15 +58,20 @@ a:focus-visible {
   top: 8px;
 }
 .masthead {
-  height: 64px;
-  display: flex;
+  max-width: 1600px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content auto;
+  grid-template-areas: "brand title settings" ". note .";
   align-items: center;
-  justify-content: space-between;
-  padding: 0 3.2%;
+  column-gap: 24px;
+  padding: 12px 3.2%;
   border-bottom: 1px solid #587079;
   color: #f4eddd;
 }
 .brand {
+  grid-area: brand;
+  justify-self: start;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -83,24 +88,25 @@ a:focus-visible {
   width: 35px;
   height: 35px;
 }
-.mast-actions {
-  display: flex;
-  gap: 24px;
-  align-items: center;
+.mast-title {
+  display: contents;
 }
-.sample {
-  font-size: 12px;
-  color: #e0e9dc;
+.mast-title h1 {
+  grid-area: title;
+  justify-self: end;
+  font-size: 25px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  margin: 0;
 }
-.sample span {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #b9ccaa;
-  margin-right: 7px;
+.mast-title p {
+  grid-area: note;
+  font-size: 1rem;
+  color: #c5d2cb;
+  margin: 0;
 }
 .settings-trigger {
+  grid-area: settings;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -109,7 +115,7 @@ a:focus-visible {
   border: 1px solid #70858a;
   border-radius: 4px;
   padding: 0 13px;
-  min-height: 40px;
+  min-height: 44px;
 }
 .settings-trigger:hover {
   background: #3a5560;
@@ -124,42 +130,21 @@ a:focus-visible {
 .page {
   max-width: 1600px;
   margin: auto;
-  padding: 22px 3.2% 0;
-}
-.page-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: end;
-  color: #f5efe1;
-  margin-bottom: 18px;
-}
-.page-heading h1 {
-  font-size: 25px;
-  line-height: 1.15;
-  letter-spacing: -0.025em;
-  margin: 0 0 5px;
-}
-.page-heading p {
-  font-size: 12px;
-  color: #c5d2cb;
-  margin: 0;
-}
-.page-heading p span {
-  padding: 0 6px;
-  color: #c5d2cb;
+  padding: 12px 3.2% 24px;
 }
 .dashboard {
   display: grid;
-  grid-template-columns: minmax(0, 1.62fr) minmax(380px, 1fr);
-  grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(0, 40fr) minmax(0, 60fr);
+  grid-template-areas: "map stack" "sightings sightings";
   gap: 12px;
+  align-items: start;
 }
 .panel {
   background: var(--cream);
   min-width: 0;
 }
 .map-panel {
-  grid-row: 1 / 3;
+  grid-area: map;
   display: flex;
   flex-direction: column;
 }
@@ -171,19 +156,19 @@ a:focus-visible {
   padding: 16px 18px 13px;
 }
 .section-head h2 {
-  font-size: 15px;
+  font-size: 1.25rem;
   margin: 0 0 3px;
   line-height: 1.2;
   letter-spacing: -0.01em;
 }
 .section-head p {
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--muted);
   margin: 0;
 }
 .map-scale {
   font-weight: 700;
-  font-size: 12px;
+  font-size: 1rem;
   color: #57716a;
   letter-spacing: 0.1em;
 }
@@ -211,7 +196,7 @@ a:focus-visible {
   font: inherit;
 }
 .marker-label {
-  font-size: 12px;
+  font-size: 1rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   color: #253f40;
@@ -269,7 +254,7 @@ a:focus-visible {
   bottom: 16px;
   left: 18px;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 1rem;
   color: #345c5e;
 }
 .map-distance span {
@@ -293,7 +278,7 @@ a:focus-visible {
   min-height: 47px;
   padding: 9px 18px;
   color: #50635f;
-  font-size: 12px;
+  font-size: 1rem;
   font-weight: 650;
 }
 .map-legend span {
@@ -325,7 +310,7 @@ a:focus-visible {
   transform: rotate(45deg);
 }
 .count {
-  font-size: 12px;
+  font-size: 1rem;
   letter-spacing: 0.08em;
   color: #455e57;
   font-weight: 800;
@@ -336,39 +321,38 @@ a:focus-visible {
 }
 .primary-readings {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 0 18px 13px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 24px;
+  padding: 0 18px 20px;
 }
 .primary-readings > div + div {
-  border-left: 1px solid var(--line);
-  padding-left: 20px;
+  min-width: 0;
 }
 .primary-readings span,
 .secondary-readings span {
-  color: #5a6d67;
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 1rem;
 }
 .primary-readings p {
   margin: 3px 0 0;
-  white-space: nowrap;
 }
 .primary-readings strong {
-  font-size: 39px;
+  font-size: var(--type-reading);
   letter-spacing: -0.04em;
-  line-height: 1;
+  line-height: 1.1;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .primary-readings small {
-  font-size: 12px;
-  color: #596f68;
+  font-size: 1rem;
+  color: var(--muted);
+  letter-spacing: normal;
 }
 .secondary-readings {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border-top: 1px solid var(--line);
-  padding: 10px 18px 13px;
-  gap: 11px 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 16px 18px;
+  gap: 16px;
 }
 .secondary-readings div {
   display: flex;
@@ -376,36 +360,35 @@ a:focus-visible {
   gap: 3px;
 }
 .secondary-readings strong {
-  font-size: 15px;
+  font-size: var(--type-support);
   font-variant-numeric: tabular-nums;
 }
 .secondary-readings strong b {
   font-weight: 700;
 }
 .secondary-readings small {
-  font-size: 12px;
-  color: #455e57;
+  font-size: 1rem;
+  color: var(--muted);
   font-weight: 500;
 }
 .sightings .section-head {
   padding-bottom: 10px;
 }
 .selected-report {
-  margin: 0 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   background: #e6e5d5;
-  padding: 10px 12px;
-  min-height: 79px;
+  padding: 10px 18px;
+  min-height: 76px;
 }
 .selected-text h3 {
   font-size: 17px;
   margin: 5px 0 2px;
 }
 .selected-text p {
-  font-size: 12px;
+  font-size: 1rem;
   color: #455e57;
   margin: 0;
   white-space: nowrap;
@@ -418,17 +401,17 @@ a:focus-visible {
   flex-shrink: 0;
 }
 .table-wrap {
-  overflow-x: auto;
+  min-width: 0;
 }
 table {
   border-collapse: collapse;
   width: 100%;
   text-align: left;
-  font-size: 12px;
+  font-size: 1rem;
   font-variant-numeric: tabular-nums;
 }
 th {
-  font-size: 12px;
+  font-size: 1rem;
   color: #455e57;
   font-weight: 650;
   white-space: nowrap;
@@ -478,12 +461,12 @@ tbody tr:last-child td {
 }
 .lower-grid {
   display: grid;
-  grid-template-columns: 1.62fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin-top: 12px;
 }
 .show-own {
-  font-size: 12px;
+  font-size: 1rem;
   color: #4c625d;
   display: flex;
   align-items: center;
@@ -508,11 +491,11 @@ tbody tr:last-child td {
 }
 .chat li {
   display: grid;
-  grid-template-columns: 40px 48px 1fr;
+  grid-template-columns: 3.25rem 4rem 1fr;
   gap: 8px;
-  padding: 6px 0;
-  font-size: 12px;
-  line-height: 1.3;
+  padding: 8px 0;
+  font-size: 1rem;
+  line-height: 1.4;
 }
 .chat time {
   color: #455e57;
@@ -553,7 +536,7 @@ dialog form {
 }
 .dialog-head p,
 .help {
-  font-size: 12px;
+  font-size: 1rem;
   color: #586e68;
   margin: 0;
   line-height: 1.5;
@@ -602,7 +585,7 @@ dialog form {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: 1rem;
   font-weight: 700;
   margin-top: 15px;
 }
@@ -617,7 +600,7 @@ dialog form {
   width: 100%;
 }
 .dialog-body small {
-  font-size: 12px;
+  font-size: 1rem;
   line-height: 1.4;
   font-weight: 400;
   color: #455e57;
@@ -659,162 +642,6 @@ dialog form {
 [hidden] {
   display: none !important;
 }
-@media (max-width: 1100px) and (min-width: 701px) {
-  .page {
-    padding-left: 2.2%;
-    padding-right: 2.2%;
-  }
-  .dashboard {
-    grid-template-columns: minmax(0, 1.2fr) minmax(350px, 1fr);
-  }
-  .lower-grid {
-    grid-template-columns: 1.2fr 1fr;
-  }
-  .map-legend {
-    gap: 12px;
-  }
-  .primary-readings strong {
-    font-size: 34px;
-  }
-}
-@media (max-width: 850px) and (orientation: portrait) {
-  .dashboard {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto;
-  }
-  .instruments {
-    grid-row: 1;
-  }
-  .map-panel {
-    grid-row: 2;
-  }
-  .sightings {
-    grid-row: 3;
-  }
-  .instruments {
-    display: grid;
-    grid-template-columns: 170px 1fr 1.35fr;
-    align-items: center;
-  }
-  .instruments .section-head {
-    padding: 14px;
-  }
-  .primary-readings {
-    padding: 12px 8px;
-  }
-  .primary-readings > div + div {
-    padding-left: 10px;
-  }
-  .primary-readings strong {
-    font-size: 28px;
-  }
-  .primary-readings span,
-  .secondary-readings span {
-    font-size: 12px;
-  }
-  .secondary-readings {
-    border: 0;
-    border-left: 1px solid var(--line);
-    padding: 12px;
-    gap: 8px;
-  }
-  .secondary-readings strong {
-    font-size: 13px;
-  }
-  .map {
-    min-height: 420px;
-  }
-  .lower-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-@media (max-width: 700px) {
-  .masthead {
-    height: 60px;
-    padding: 0 16px;
-  }
-  .brand {
-    font-size: 13px;
-  }
-  .brand img {
-    width: 30px;
-    height: 30px;
-  }
-  .mast-actions {
-    gap: 12px;
-  }
-  .sample {
-    font-size: 12px;
-  }
-  .settings-trigger {
-    font-size: 12px;
-    padding: 0 10px;
-    min-height: 44px;
-  }
-  .page {
-    padding: 20px 12px 0;
-  }
-  .page-heading h1 {
-    font-size: 23px;
-  }
-  .dashboard {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .instruments {
-    order: 0;
-    display: block;
-  }
-  .map-panel {
-    order: 1;
-  }
-  .sightings {
-    order: 2;
-  }
-  .map {
-    min-height: 360px;
-  }
-  .map-legend {
-    gap: 10px 14px;
-  }
-  .primary-readings strong {
-    font-size: 34px;
-  }
-  .lower-grid {
-    grid-template-columns: 1fr;
-    gap: 10px;
-    margin-top: 10px;
-  }
-  .squad .section-head {
-    align-items: center;
-  }
-  .show-own {
-    max-width: 140px;
-  }
-  .unit-grid {
-    grid-template-columns: 1fr;
-  }
-  .marker-label {
-    font-size: 12px;
-  }
-  .map-distance {
-    bottom: 10px;
-  }
-  .dialog-head,
-  .dialog-body {
-    padding-left: 20px;
-    padding-right: 20px;
-  }
-  .settings-nav {
-    padding: 0 20px;
-  }
-  .dialog-actions {
-    padding-left: 20px;
-    padding-right: 20px;
-  }
-}
-
 /* Recent sample traces are subordinate to the actual instrument values. */
 .trace {
   display: block;
@@ -846,7 +673,7 @@ dialog form {
 }
 .awards {
   position: relative;
-  font-size: 12px;
+  font-size: 1rem;
   color: #4c625d;
 }
 .awards summary {
@@ -885,7 +712,7 @@ dialog form {
 }
 .state-label {
   display: block;
-  font-size: 12px;
+  font-size: 1rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -894,19 +721,6 @@ dialog form {
 .out-of-action td:not(:first-child) {
   text-decoration: line-through;
   text-decoration-color: #b78371;
-}
-@media (max-width: 700px) {
-  .squad-controls {
-    gap: 8px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-  .awards summary {
-    min-height: 44px;
-  }
-  .squad .section-head {
-    align-items: flex-start;
-  }
 }
 .map-marker.own {
   left: 34%;
@@ -941,7 +755,7 @@ dialog form {
   min-height: 44px;
 }
 .sightings-table .state-label {
-  font-size: 12px;
+  font-size: 1rem;
 }
 .settings-trigger,
 .show-own {
@@ -967,7 +781,7 @@ dialog form {
   z-index: 1;
   pointer-events: none;
   color: #203e3d;
-  font-size: 12px;
+  font-size: 1rem;
   font-weight: 750;
 }
 .map-columns {
@@ -1031,48 +845,6 @@ dialog form {
   border-top: 1px solid #fff;
   transform: rotate(-45deg);
 }
-.marker-label {
-  font-size: 12px;
-  letter-spacing: 0;
-  color: #1d3939;
-  background: #f9f5e8;
-}
-.marker-label b {
-  color: #304d47;
-}
-.map-distance {
-  color: #183e3d;
-  font-size: 12px;
-}
-.map-distance small {
-  font-size: 12px;
-}
-.map-legend {
-  font-size: 12px;
-  color: #394f49;
-  gap: 10px 16px;
-}
-.section-head h2 {
-  font-size: 16px;
-}
-.section-head p,
-.primary-readings span,
-.secondary-readings span {
-  font-size: 12px;
-  color: #455e57;
-}
-.primary-readings small,
-.secondary-readings small {
-  font-size: 12px;
-  color: #455e57;
-}
-.secondary-readings strong {
-  font-size: 17px;
-}
-.count {
-  font-size: 12px;
-  color: #455e57;
-}
 .selected-text h3 {
   display: flex;
   align-items: center;
@@ -1083,46 +855,12 @@ dialog form {
   background: #8c3d25;
   color: #fff;
   padding: 3px 5px;
-  font-size: 12px;
+  font-size: 1rem;
 }
 .selected-text p {
-  font-size: 12px;
+  font-size: 1rem;
   color: #3d544c;
   white-space: normal;
-}
-table {
-  font-size: 13px;
-}
-th {
-  font-size: 12px;
-  color: #455e57;
-}
-td,
-th {
-  padding-left: 9px;
-  padding-right: 9px;
-}
-.show-own,
-.awards {
-  font-size: 12px;
-}
-.chat li {
-  font-size: 13px;
-  grid-template-columns: 44px 52px 1fr;
-}
-.chat time,
-.chat li b {
-  color: #455e57;
-}
-.state-label,
-.sightings-table .state-label {
-  font-size: 12px;
-  letter-spacing: 0;
-  text-transform: none;
-}
-.dialog-body small {
-  color: #455e57;
-  font-size: 12px;
 }
 .dialog-head p,
 .help,
@@ -1136,155 +874,147 @@ th {
   stroke: currentColor;
   stroke-width: 1.8;
 }
-.page {
-  padding-bottom: 24px;
-}
-@media (max-width: 850px) and (orientation: portrait) {
-  .instruments {
-    grid-template-columns: 150px 1fr 1.7fr;
-  }
-  .primary-readings span,
-  .secondary-readings span {
-    font-size: 12px;
-  }
-  .secondary-readings strong {
-    font-size: 16px;
-  }
-  .map {
-    min-height: 0;
-  }
-  .lower-grid {
-    grid-template-columns: 1fr;
-  }
-}
-@media (max-width: 700px) {
-  .sample {
-    font-size: 12px;
-  }
-  .map {
-    min-height: 0;
-  }
-  .marker-label {
-    font-size: 12px;
-  }
-  .primary-readings span,
-  .secondary-readings span {
-    font-size: 12px;
-  }
-  .secondary-readings strong {
-    font-size: 17px;
-  }
-  .squad table,
-  .sightings-table,
-  .squad tbody,
-  .sightings-table tbody {
-    display: block;
-  }
-  .squad thead,
-  .sightings-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-  .squad tbody tr,
-  .sightings-table tbody tr {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 8px 18px;
-    border-bottom: 1px solid #d5d9cb;
-  }
-  .squad tbody td,
-  .sightings-table tbody td {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    white-space: normal;
-    padding: 6px 0;
-    border: 0;
-  }
-  .squad tbody td:first-child,
-  .sightings-table tbody td:first-child {
-    grid-column: 1 / -1;
-    padding: 0;
-  }
-  .squad tbody td[data-label]::before,
-  .sightings-table tbody td[data-label]::before {
-    content: attr(data-label);
-    font-size: 12px;
-    font-weight: 500;
-    color: #455e57;
-  }
-  .sightings-table button {
-    min-height: 44px;
-  }
-}
-
-@media (min-width: 701px) and (max-width: 1100px) and (orientation: landscape) {
+/* Flight condition leads; the full-extent chart remains paired with its report. */
+.instrument-stack { grid-area: stack; display: flex; flex-direction: column; gap: 12px; }
+.instruments { grid-area: instruments; }
+.supporting { grid-area: supporting; }
+.sightings { grid-area: sightings; }
+.primary-readings > div:nth-child(n + 3) { display: flex; flex-direction: column; gap: 3px; }
+.primary-readings > div:nth-child(n + 3) strong { font-size: var(--type-key); letter-spacing: 0; }
+.primary-readings .trace { width: 76px; height: 16px; }
+.secondary-readings .trace { width: 60px; height: 14px; }
+.marker-label, .map-columns, .map-rows, .map-distance, .map-distance small, .map-legend { font-size: .875rem; }
+.marker-label { letter-spacing: 0; color: #1d3939; background: #f9f5e8; }
+.marker-label b { color: #304d47; }
+.map-distance { color: #183e3d; }
+.map-legend { color: #394f49; gap: 8px 14px; }
+.hostile { width: 44px; height: 44px; min-width: 44px; }
+.hostile .marker-label { position: absolute; left: 35px; pointer-events: none; }
+.map-distance { left: 30px; bottom: 8px; }
+.selected-text h3 { font-size: 1.125rem; }
+.selected-text p { font-size: 1rem; }
+#selected-grid { font-size: 1rem; }
+.show-own, .awards, .state-label { font-size: 1rem; }
+.state-label { letter-spacing: 0; text-transform: none; }
+.dialog-body h3 { font-size: 1.125rem; }
+@media (min-width: 1101px) {
   .page {
-    padding-top: 16px;
     display: grid;
-    grid-template-columns: minmax(0, 1.2fr) minmax(350px, 1fr);
+    grid-template-columns: minmax(0, 40fr) minmax(0, 60fr);
     grid-template-areas:
-      "heading heading"
-      "map instruments"
+      "map stack"
       "map chat"
-      "squad sightings";
+      "sightings sightings"
+      "squad squad";
+    grid-template-rows: max-content minmax(0, 1fr) auto auto;
+    align-items: start;
     gap: 12px;
   }
-  .page-heading {
-    grid-area: heading;
-    margin-bottom: 0;
-  }
-  .section-head {
-    padding-top: 13px;
-    padding-bottom: 10px;
-  }
-  /* Keep the DOM and keyboard order while using the space below instruments. */
-  .dashboard,
-  .lower-grid {
-    display: contents;
-  }
-  .map-panel {
-    grid-area: map;
-  }
-  .instruments {
-    grid-area: instruments;
-  }
-  .chat {
-    grid-area: chat;
-  }
-  .squad {
-    grid-area: squad;
-  }
-  .sightings {
-    grid-area: sightings;
-  }
+  .dashboard, .lower-grid { display: contents; }
+  .chat { grid-area: chat; }
+  .squad { grid-area: squad; }
 }
 
-/* Live connection controls retain the index's flat work-surface treatment. */
+@media (max-width: 1100px) {
+  .masthead { padding-left: 2.2%; padding-right: 2.2%; }
+  .page { padding-left: 2.2%; padding-right: 2.2%; }
+  .secondary-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .dashboard { grid-template-columns: 1fr; grid-template-areas: "instruments" "map" "supporting" "sightings"; }
+  .instrument-stack { display: contents; }
+  .map-panel { width: min(100%, 540px); justify-self: center; }
+  .primary-readings { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .secondary-readings { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .masthead {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "brand brand" "title settings" "note .";
+    column-gap: 12px;
+    padding: 12px;
+  }
+  .brand { font-size: .875rem; margin-bottom: 8px; }
+  .brand img { width: 30px; height: 30px; }
+  .mast-title h1 { justify-self: start; }
+  .settings-trigger { padding: 0 8px; }
+  .page { padding: 12px 12px 24px; }
+  .dashboard { grid-template-columns: 1fr; grid-template-areas: "instruments" "map" "supporting" "sightings"; }
+  .instrument-stack { display: contents; }
+  .primary-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .primary-readings strong { font-size: 2.75rem; }
+  .primary-readings > div:nth-child(n + 3) strong { font-size: 1.5rem; }
+  .secondary-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .squad .section-head { flex-wrap: wrap; }
+  .squad-controls { gap: 8px 16px; flex-wrap: wrap; }
+  .unit-grid { grid-template-columns: 1fr; }
+  .dialog-head, .dialog-body { padding-left: 20px; padding-right: 20px; }
+  .settings-nav, .dialog-actions { padding-left: 20px; padding-right: 20px; }
+}
+/* Reflow rows before their content would need a horizontal scroller. */
+@media (max-width: 900px) {
+  .squad table, .sightings-table, .squad tbody, .sightings-table tbody { display: block; }
+  .squad thead, .sightings-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .squad tbody tr, .sightings-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 8px 18px; border-bottom: 1px solid #d5d9cb; }
+  .squad tbody td, .sightings-table tbody td { display: flex; flex-direction: column; gap: 3px; white-space: normal; padding: 6px 0; border: 0; }
+  .squad tbody td:first-child, .sightings-table tbody td:first-child { grid-column: 1 / -1; padding: 0; }
+  .squad tbody td[data-label]::before, .sightings-table tbody td[data-label]::before { content: attr(data-label); font-size: 1rem; font-weight: 500; color: #455e57; }
+}
+
+@media (max-width: 360px) {
+  .hostile[data-report="1"] .marker-label { left: 23px; }
+  .squad-marker .marker-label { position: absolute; left: -20px; bottom: 18px; }
+}
+
+@media (max-width: 310px) {
+  .hostile[data-report="1"] .marker-label { left: 0; bottom: 36px; }
+}
+
+/* App utilities and the live chart use the same work surfaces as the reference. */
+.mode-utility { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 14px; color: #e0e9dc; margin-bottom: 12px; }
+@media (min-width: 701px) {
+  .masthead { grid-template-columns: minmax(0, 1fr) minmax(0, auto) auto; }
+}
+.mast-title p { max-width: 100%; overflow-wrap: anywhere; }
+.section-head { flex-wrap: wrap; }
+.mode-utility button { min-height: 44px; padding: 0 12px; border: 1px solid #70858a; border-radius: 4px; background: transparent; color: #f6f0e4; }
+.mode-utility button:hover { background: #3a5560; }
 .connection-bar { background: #e7e8d9; padding: 12px 18px; margin-bottom: 12px; }
 .connection-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.connection-actions button, .connection-actions a { min-height: 40px; border: 1px solid #91a39a; border-radius: 3px; padding: 9px 12px; color: #36544f; background: #fffdf5; font-weight: 700; }
+.connection-actions button, .connection-actions a { min-height: 44px; border: 1px solid #91a39a; border-radius: 3px; padding: 10px 12px; color: #36544f; background: #fffdf5; font-weight: 700; }
 .connection-actions .button-primary { background: #345b59; color: white; border-color: #345b59; }
 .connection-actions button:disabled { opacity: .55; cursor: not-allowed; }
-.connection-bar p { color: #455e57; font-size: 12px; margin: 7px 0 0; }
+.connection-bar p { color: #455e57; font-size: 1rem; margin: 7px 0 0; }
 .empty-state { color: #455e57; margin: 4px 18px 18px; }
 .chat li:only-child { display: block; color: #455e57; }
-@media (max-width: 700px) { .masthead { height: auto; min-height: 60px; gap: 8px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; } .mast-actions { flex-wrap: wrap; gap: 8px; } .connection-bar { margin-bottom: 10px; } }
-@media (min-width: 701px) and (max-width: 1100px) and (orientation: landscape) {
-  .page { grid-template-areas: "heading heading" "connection connection" "map instruments" "map chat" "squad sightings"; }
-  .connection-bar { grid-area: connection; margin: 0; }
-}
-
-.map.live-map { aspect-ratio: auto; min-height: 220px; display: flex; align-items: center; justify-content: center; background: #dce4dc; }
-.map.live-map #live-map { display: block; width: auto; height: auto; max-inline-size: 100%; max-block-size: 54svh; }
-@media (max-width: 850px) and (orientation: portrait) {
-  .map.live-map #live-map { max-block-size: 45svh; }
-}
-#map-status { padding: 18px; color: #36544f; text-align: center; }
 .dialog-body label.sharing-preference { display: grid; grid-template-columns: 20px 1fr; align-items: center; }
 .dialog-body .sharing-preference input { width: 18px; min-height: 18px; height: 18px; padding: 0; }
 .dialog-body .sharing-preference small { grid-column: 2; }
+.map.live-map { display: flex; align-items: center; justify-content: center; background: #dce4dc; }
+.map.live-map #live-map { position: absolute; inset: 0; margin: auto; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
+#map-status { padding: 18px; color: #36544f; text-align: center; }
+.primary-readings > div, .secondary-readings > div { min-width: 0; overflow-wrap: anywhere; }
+@media (min-width: 701px) and (orientation: landscape) {
+  .page { display: grid; grid-template-columns: minmax(0, 40fr) minmax(0, 60fr); grid-template-areas: "utility utility" "connection connection" "map stack" "map chat" "sightings sightings" "squad squad"; grid-template-rows: auto; align-items: start; gap: 12px; }
+  .mode-utility { grid-area: utility; margin: 0; }
+  .connection-bar { grid-area: connection; margin: 0; }
+  .dashboard, .lower-grid { display: contents; }
+  .instrument-stack { display: flex; }
+  .map-panel { width: auto; justify-self: stretch; }
+  .primary-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .chat { grid-area: chat; }
+  .squad { grid-area: squad; }
+}
+@media (min-width: 701px) and (max-width: 900px) and (orientation: landscape) {
+  .secondary-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px) and (orientation: portrait) {
+  .dashboard { grid-template-columns: 1fr; grid-template-areas: "instruments" "map" "supporting" "sightings"; }
+  .instrument-stack { display: contents; }
+  .map-panel { width: min(100%, 540px); justify-self: center; }
+  .primary-readings { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .secondary-readings { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .primary-readings, .secondary-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
