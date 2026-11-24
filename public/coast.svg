@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" preserveAspectRatio="xMidYMid meet">
+<rect width="900" height="600" fill="#9ebec0"/>
+<!-- Fictional coast, coves and islands -->
+<path d="M0 0H633q-3 19-15 36l-13 7q-11 13-21 13l-7 27q-17 12-34 13l-15 3-6 27-24 7-9 4-6 31q-15 10-33 11l-14 5-16 33q-14 8-27 7l-14 4-5 34-21 5-14 7-13 37-25 8-13 6-8 44-22 10-16 11-12 38-29 15-14 11-11 36-37 8-24 9-8 51H0Z" fill="#b6c3a4" stroke="#e3ddc1" stroke-width="5"/>
+<path d="m696 90 39-17 31 9 8 21-25 16-45-4-17-12Zm-30 42 18-7 16 9-3 13-23 3-13-8ZM531 313l31-13 28 11 2 18-23 11-36-7-10-11Zm-46 34 15-5 15 8-5 12-20 1-9-8Z" fill="#b6c3a4" stroke="#e3ddc1" stroke-width="4"/>
+<!-- Relief and local routes stay subordinate to the grid and reports. -->
+<g fill="none" stroke="#8fa487" stroke-width="1.5" opacity=".6">
+<path d="M24 80q43-36 92-25t78-23M29 88q43-36 92-25t78-23M36 96q43-36 92-25t78-23"/>
+<path d="M13 400q67-27 105-12t71-8M46 196q37 12 70 0t64-8M230 73q25 25 46 19t48-21" stroke="#e4e0c4" stroke-dasharray="5 4"/>
+</g>
+<!-- relief, fields and waterways -->
+<g fill="none" stroke="#8fa487" stroke-width="2" opacity=".8"><path d="M-20 137Q83 92 154 116T297 109T478 62M-20 150Q83 105 154 129T297 122T478 75M-20 163Q83 118 154 142T297 135T478 88M10 321q76-50 135-23t119-25q65-38 120-37M5 333q76-50 135-23t119-25q65-38 120-37M4 345q76-50 135-23t119-25q65-38 120-37M51 485q36-54 89-53t83-46M61 496q36-54 89-53t83-46"/><path d="M98 0q25 74 101 128t48 117q-12 38-92 71T95 445M285 0q-15 52 12 102t-18 103q-37 48-28 92" stroke="#d7d6b9" stroke-width="3"/><path d="M0 248q65-20 113-8t81 44q53 41 123 37M37 560q44-49 85-78t83-23" stroke="#ede4c9" stroke-width="2" stroke-dasharray="7 5"/></g>
+<g fill="#5e796c" opacity=".7"><circle cx="127" cy="207" r="3"/><circle cx="268" cy="172" r="3"/><circle cx="180" cy="380" r="3"/><circle cx="360" cy="106" r="3"/></g>
+<g fill="#536f68" font-family="sans-serif" font-size="12" letter-spacing="1"><text x="136" y="203">BRACKEN</text><text x="276" y="168">NORTH WATCH</text><text x="188" y="376">LOWER REACH</text><text x="368" y="102">ASH POINT</text><text x="582" y="440" fill="#587a80" font-size="16" letter-spacing="3">GREYHAVEN BAY</text><text x="707" y="151" fill="#587a80">THE SKERRIES</text></g>
+<g stroke="#526e6c" stroke-width="1" opacity=".23"><path d="M150 0v600M300 0v600M450 0v600M600 0v600M750 0v600M0 120h900M0 240h900M0 360h900M0 480h900"/></g>
+
+</svg>

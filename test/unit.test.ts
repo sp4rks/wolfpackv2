@@ -2,6 +2,39 @@ import { describe, expect, test } from "bun:test";
 import { normalizeTelemetry, readTelemetry } from "../src/client/telemetry.ts";
 import { createRoomKey, isRoomKey, parseClientMessage } from "../src/shared/protocol.ts";
 import { inviteKey, inviteUrl } from "../src/client/squad.ts";
+import { addHistory, altitude, bearing, climb, climbAngle, defaults, emptyHistories, preferences, speed, temperature } from "../src/client/derived.ts";
+import { sampleOwn } from "../src/client/sample.ts";
+
+describe("dashboard readings and settings", () => {
+  test("converts units, preserves missing readings, and validates stored preferences", () => {
+    const prefs = preferences({ speed: "mph", altitude: "ft", climb: "ftmin", temp: "f", distance: "nm", player: "  Ace  " });
+    expect(prefs.player).toBe("Ace");
+    expect(speed(100, prefs)).toBe(new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(62.1371));
+    expect(altitude(100, prefs)).toBe(new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(328.084));
+    expect(climb(1, prefs)).toBe("+197");
+    expect(temperature(100, prefs)).toBe("212");
+    expect(speed(null, prefs)).toBe("—");
+    expect(preferences({ speed: "invalid", player: "bad\u0000name", endpoint: "https://elsewhere" })).toEqual(defaults);
+  });
+  test("derives compass and meaningful IAS-based angle", () => {
+    expect(bearing(null)).toBe("—");
+    expect(bearing(359)).toBe("359° N");
+    expect(bearing(-90)).toBe("270° W");
+    expect(bearing(74)).toBe("074° ENE");
+    expect(climbAngle(0, 4)).toBeNull();
+    expect(climbAngle(null, 4)).toBeNull();
+    expect(climbAngle(360, 10)).toBeCloseTo(5.7106, 3);
+  });
+  test("histories are bounded and break on missing data", () => {
+    const history = emptyHistories();
+    for (let i = 0; i < 20; i++) addHistory(history, { ...sampleOwn, iasKph: i });
+    expect(history.iasKph).toHaveLength(12);
+    expect(history.iasKph[0]).toBe(8);
+    addHistory(history, { ...sampleOwn, iasKph: null });
+    expect(history.iasKph).toEqual([]);
+    expect("headingDeg" in history).toBe(false);
+  });
+});
 
 describe("flight data", () => {
   test("normalizes only valid, allowlisted aircraft fields", () => {

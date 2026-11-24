@@ -1,7 +1,8 @@
-# WolfPack foundation
+# Wolf Pack
 
-Minimal diagnostics for an opt-in, browser-only War Thunder aircraft feed and
-an invite-only live squad relay. This is not the final UI.
+An opt-in, browser-only War Thunder aircraft feed and invite-only squad relay.
+The Spotter’s Index UI follows the approved design reference at
+`designs/wolfpack-v2`, revision `7e3890382ae5b7a0af7b34e503e43255786f65a6`.
 
 ## Local verification
 
@@ -21,13 +22,36 @@ In a second terminal, while the dev server runs:
 bun run test:room                # real local Worker and Durable Object sockets
 ```
 
-Open `http://127.0.0.1:5173`, enter a name, create a squad, and copy the
+Open `http://127.0.0.1:5173`, set a player name in Settings, create a squad, and copy the
 invite link to another browser tab or device that can reach that server.
 Join as a viewer; neither participant polls the game on joining. On the
 game computer, press **Share game instruments** and permit loopback access if
 prompted. Stop sharing or leave to clear the live sample. The other participant
 does not need War Thunder. Localhost testing alone does not prove that a
-public HTTPS site can access the game on every browser.
+public HTTPS site can access the game on every browser. Settings save does not
+connect to the game. The endpoint is fixed and read-only.
+
+## Real and sample views
+
+Real view is the default. Its coastal chart is illustrative, not a game map;
+live positions, sightings, chat, awards and out-of-action status are not
+available. Real own-aircraft readings appear only after joining a squad and
+explicitly choosing Share. Squad members see only the allowlisted instruments
+another member chooses to share. Welcome snapshots have no sample timestamp,
+so the UI waits for the next update rather than presenting one as current.
+Readings and their bounded recent histories clear on stop, unavailability or
+expiry. Bearing has no history. The climb angle is an IAS-derived estimate,
+not a true flight-path angle. Water/engine temperature is deliberately labeled
+generically: the existing wire field can contain either the state water
+temperature or the indicators engine-temperature fallback.
+
+**Explore sample view** explicitly disconnects and stops sharing. Everything in
+that view, including ownship and squad markers, reports, chat, awards and
+out-of-action state, is fictional. It makes no game reads or telemetry sends.
+Returning to real view leaves the connection and sharing off. The selected
+sighting is linked to its map marker and report; unknown values remain unknown.
+Display units and the show-own choice are saved locally; distance is saved but
+not used. The squad name is a local label, not the bearer invite or room key.
 
 ## Integration seams
 
@@ -37,9 +61,11 @@ public HTTPS site can access the game on every browser.
 - `src/client/squad.ts`: `inviteKey`, `inviteUrl`, and `connectSquad` provide
   connection status, room events, publication and close. `src/shared/protocol.ts`
   defines messages and the allowlisted telemetry shape.
-- `src/client/diagnostics.ts` and `index.html` show a minimal end-to-end
-  integration. The server assigns connection identities; clients should clear
-  local state on disconnect and expire samples using `SAMPLE_LIFETIME_MS`.
+- `src/client/dashboard.ts`, `derived.ts`, `sample.ts`, and `index.html`
+  implement the presentation, derived units, fictional data, and interaction
+  with the existing transport. The server assigns connection identities;
+  the client clears local state on disconnect and expires samples using
+  `SAMPLE_LIFETIME_MS`.
 - `cloudflare.config.ts` configures the Worker, assets, SQLite-backed
   Hibernating Durable Object and intended custom domain. The domain is
   configuration only; this project has not provisioned or deployed anything.
@@ -62,7 +88,8 @@ or other tooling that could capture the header or fragment. The origin check
 protects against cross-origin browser pages, not a non-browser client holding
 the invite. The room caps connections and rate-limits sample broadcasts.
 Samples live in WebSocket attachments for connected members; the application
-makes no database writes and retains no history. Browsers clear stale displays.
+makes no database writes or server-side history. Short reading histories stay
+in browser memory only and are cleared with the current sample.
 
 The browser must permit cross-origin reads and loopback access, and the game
 must return suitable CORS headers. Local Network Access and HTTPS-to-HTTP

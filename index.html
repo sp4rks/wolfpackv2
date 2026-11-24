@@ -3,24 +3,378 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WolfPack diagnostics</title>
+    <meta name="color-scheme" content="light">
+    <title>Wolf Pack — Flight overview</title>
+    <link rel="icon" href="/wolf.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/src/client/dashboard.css">
+    <script type="module" src="/src/client/dashboard.ts"></script>
   </head>
   <body>
-    <main>
-      <h1>WolfPack diagnostics</h1>
-      <p>Temporary controls for testing the game feed and squad relay.</p>
-      <form id="squad">
-        <label for="name">Display name</label>
-        <input id="name" required maxlength="32" autocomplete="nickname">
-        <button id="enter">Create squad</button>
-        <button id="leave" type="button" disabled>Leave squad</button>
-      </form>
-      <p id="squad-status" role="status">Not connected.</p>
-      <p><a id="invite" hidden>Squad invite link</a></p>
-      <button id="share" type="button" disabled>Share game instruments</button>
-      <p id="feed-status" role="status">Not sharing game instruments.</p>
-      <ul id="members" aria-label="Squad members"></ul>
+    <a class="skip-link" href="#main">Skip to flight overview</a>
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="Wolf Pack home"
+        ><img src="/wolf.svg" alt=""><span>WOLF <strong>PACK</strong></span></a
+      >
+      <div class="mast-actions">
+        <span class="sample" id="mode-label"><span></span> Real view</span><button id="mode-toggle" class="settings-trigger" type="button">Explore sample view</button
+        ><button class="settings-trigger" id="open-settings" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM19 13.4l1.4 1.1-1.5 2.6-1.7-.6a7 7 0 0 1-2.4 1.4l-.3 1.8h-3l-.3-1.8a7 7 0 0 1-2.4-1.4l-1.7.6-1.5-2.6L7 13.4a7 7 0 0 1 0-2.8L5.6 9.5l1.5-2.6 1.7.6a7 7 0 0 1 2.4-1.4l.3-1.8h3l.3 1.8a7 7 0 0 1 2.4 1.4l1.7-.6 1.5 2.6-1.4 1.1a7 7 0 0 1 0 2.8Z"
+            />
+          </svg
+          >Settings
+        </button>
+      </div>
+    </header>
+    <main id="main" class="page">
+      <div class="page-heading">
+        <div>
+          <h1>Flight overview</h1>
+          <p id="page-subtitle">Real view <span> / </span> Flight instruments only</p>
+        </div>
+      </div>
+      <section class="connection-bar" aria-label="Squad connection">
+        <div class="connection-actions"><button id="enter" class="button-primary" type="button">Create squad</button><button id="leave" type="button" disabled>Leave squad</button><button id="share" type="button" disabled>Share game instruments</button><a id="invite" hidden>Invite link</a><button id="copy-invite" type="button" hidden>Copy invite</button></div>
+        <p id="squad-status" role="status">Not connected. Set your player name in Settings, then create or join a squad.</p><p id="feed-status" role="status">Not sharing game instruments.</p>
+      </section>
+      <div class="dashboard">
+        <section class="map-panel panel" aria-labelledby="map-title">
+          <div class="section-head map-head">
+            <div>
+              <h2 id="map-title">Operating map</h2>
+              <p id="map-subtitle">Illustrative chart · live map unavailable</p>
+            </div>
+            <span class="map-scale" aria-label="North">
+              N
+              <svg viewBox="0 0 16 20" aria-hidden="true">
+                <path d="M8 1 3 10l5-2 5 2L8 1Zm0 7v11" />
+              </svg>
+            </span>
+          </div>
+          <div
+            class="map"
+            role="group"
+            aria-label="Illustrative coastal chart. Live map unavailable." id="map"
+          >
+            <div class="map-art"></div>
+            <div class="map-columns" aria-hidden="true">
+              <span>1</span><span>2</span><span>3</span><span>4</span
+              ><span>5</span><span>6</span>
+            </div>
+            <div class="map-rows" aria-hidden="true">
+              <span>A</span><span>B</span><span>C</span><span>D</span
+              ><span>E</span>
+            </div>
+            <div class="map-marker own sample-marker" hidden>
+              <span class="own-symbol"></span
+              ><span class="marker-label">YOU <b>C3</b></span>
+            </div>
+            <div class="map-marker squad-marker sample-marker" hidden>
+              <span class="squad-symbol"></span
+              ><span class="marker-label">MOSS <b>C2</b></span>
+            </div>
+            <button
+              class="map-marker hostile sample-marker" hidden
+              data-report="0"
+              aria-label="Select sighting of Rook in B4"
+            >
+              <span class="hostile-symbol"></span
+              ><span class="marker-label">ROOK <b>B4</b></span>
+            </button>
+            <button
+              class="map-marker hostile sample-marker" hidden
+              data-report="1"
+              aria-label="Select sighting of Vesper in C5"
+            >
+              <span class="hostile-symbol"></span
+              ><span class="marker-label">VESPER <b>C5</b></span>
+            </button>
+            <button
+              class="map-marker hostile hostile-out sample-marker" hidden
+              data-report="2"
+              aria-label="Select out-of-action sighting of Finch in D3"
+            >
+              <span class="hostile-symbol"></span
+              ><span class="marker-label">FINCH <b>D3</b></span>
+            </button>
+            <div class="map-distance" id="map-distance" hidden>
+              <span></span>
+              10 km <small>illustrative scale</small>
+            </div>
+          </div>
+          <div class="map-legend" id="map-legend" hidden>
+            <span><i class="legend-own"></i> Ownship</span
+            ><span><i class="legend-squad"></i> Squad</span
+            ><span><i class="legend-hostile"></i> Last-known sighting</span
+            ><span><i class="legend-out"></i> Out of action</span
+            ><span class="legend-selection"><i></i> Selected</span>
+          </div>
+        </section>
+        <section class="instruments panel" aria-labelledby="instrument-title">
+          <div class="section-head">
+            <div>
+              <h2 id="instrument-title">Your instruments</h2>
+              <p id="instrument-subtitle">Not sharing · no current readings</p>
+            </div>
+          </div>
+          <div class="primary-readings">
+            <div>
+              <span>Indicated airspeed</span>
+              <p>
+                <strong data-value="ias">—</strong>
+                <small data-unit="speed">km/h</small>
+              </p>
+              <span class="trace" data-trace="ias"></span>
+            </div>
+            <div>
+              <span>Altitude</span>
+              <p>
+                <strong data-value="altitude">—</strong>
+                <small data-unit="altitude">m</small>
+              </p>
+              <span class="trace" data-trace="altitude"></span>
+            </div>
+          </div>
+          <div class="secondary-readings">
+            <div>
+              <span>True airspeed</span
+              ><strong
+                ><b data-value="tas">—</b>
+                <small data-unit="speed">km/h</small></strong
+              ><span class="trace" data-trace="tas"></span>
+            </div>
+            <div>
+              <span>Bearing</span><strong id="bearing">—</strong>
+            </div>
+            <div>
+              <span>Climb</span
+              ><strong
+                ><b data-value="climb">—</b>
+                <small data-unit="climb">m/s</small>
+                <small id="climb-angle"></small></strong
+              ><span class="trace" data-trace="climb"></span>
+            </div>
+            <div>
+              <span>Throttle</span><strong><b data-value="throttle">—</b> <small>%</small></strong><span class="trace" data-trace="throttle"></span>
+            </div>
+            <div>
+              <span id="coolant-label">Water / engine temp</span
+              ><strong
+                ><b data-value="coolant">—</b>
+                <small data-unit="temp">°C</small></strong
+              ><span class="trace" data-trace="coolant"></span>
+            </div>
+            <div>
+              <span>Oil temp</span
+              ><strong
+                ><b data-value="oil">—</b>
+                <small data-unit="temp">°C</small></strong
+              ><span class="trace" data-trace="oil"></span>
+            </div>
+          </div>
+        </section>
+        <section class="sightings panel" aria-labelledby="sightings-title">
+          <div class="section-head">
+            <div>
+              <h2 id="sightings-title">Sightings</h2>
+              <p>Last-known positions, not live tracks</p>
+            </div>
+            <span class="count" id="report-count">UNAVAILABLE</span>
+          </div>
+          <p class="empty-state" id="sighting-empty">Live sightings are unavailable.</p><div class="selected-report" id="selected-report" aria-live="polite" hidden>
+            <div class="selected-text">
+              <h3>
+                <span id="selected-aircraft">Bf 109 G-6</span>
+                <b id="selected-grid">B4</b>
+              </h3>
+              <p>
+                <span id="selected-player">Rook</span>
+                · <span id="selected-altitude">2,100 m</span> ·
+                <span id="selected-age">24 sec ago</span>
+              </p>
+            </div>
+            <svg
+              class="aircraft"
+              viewBox="0 0 300 100"
+              role="img"
+              aria-label="Side profile illustration of selected aircraft"
+            >
+              <path id="aircraft-path" d="" />
+            </svg>
+          </div>
+          <div class="table-wrap">
+            <table class="sightings-table">
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Aircraft</th>
+                  <th>Location / alt.</th>
+                  <th>Age</th>
+                </tr>
+              </thead>
+              <tbody id="sighting-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+      <div class="lower-grid">
+        <section class="squad panel" aria-labelledby="squad-title">
+          <div class="section-head">
+            <div>
+              <h2 id="squad-title">Squad</h2>
+              <p id="squad-subtitle">Connected squad instruments · out-of-action status unavailable</p>
+            </div>
+            <div class="squad-controls">
+              <details class="awards">
+                <summary id="awards-summary">Awards unavailable</summary>
+                <div>
+                  <strong>Squad awards</strong><div id="awards-content"><p>Awards are unavailable in real view.</p></div>
+                </div>
+              </details>
+              <label class="show-own"
+                ><input id="show-own" type="checkbox" checked>
+                Show my instruments</label
+              >
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>IAS</th>
+                  <th>Altitude</th>
+                  <th>Bearing</th>
+                  <th>Climb</th>
+                  <th>Throttle</th>
+                </tr>
+              </thead>
+              <tbody id="squad-rows"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="chat panel" aria-labelledby="chat-title">
+          <div class="section-head">
+            <div>
+              <h2 id="chat-title">Game chat</h2>
+              <p id="chat-subtitle">Read-only · unavailable in real view</p>
+            </div>
+          </div>
+          <ul id="chat-list"><li>Game chat is unavailable in real view.</li></ul>
+        </section>
+      </div>
     </main>
-    <script type="module" src="/src/client/diagnostics.ts"></script>
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <form id="settings-form">
+        <div class="dialog-head">
+          <div>
+            <h2 id="settings-title">Settings</h2>
+            <p>Preferences saved on this device</p>
+          </div>
+          <button
+            class="close-button"
+            type="button"
+            id="close-settings"
+            aria-label="Close settings"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m5 5 14 14M19 5 5 19" />
+            </svg>
+          </button>
+        </div>
+        <div class="settings-nav" aria-label="Settings sections">
+          <button
+            type="button"
+            data-section="configuration"
+            aria-pressed="true"
+          >
+            Configuration
+          </button><button
+            type="button"
+            data-section="display"
+            aria-pressed="false"
+          >
+            Display units
+          </button>
+        </div>
+        <div class="dialog-body">
+          <section id="configuration">
+            <h3>Configuration</h3>
+            <p class="help">
+              Preferences stay in this browser. Joining and game sharing are separate actions.
+            </p>
+            <label
+              >Player name<input
+                name="player"
+                required
+                maxlength="32"
+                autocomplete="off"
+              ></label
+            ><label
+              >Game endpoint<input
+                name="endpoint"
+                type="url"
+                readonly
+                value="http://127.0.0.1:8111"
+                autocomplete="off"
+              ><small
+                >Fixed to this computer’s loopback endpoint; Wolf Pack cannot change the target.</small
+              ></label
+            ><label
+              >Squad name (local label only)<input
+                name="squad"
+                required
+                maxlength="32"
+                autocomplete="off"
+              ></label
+            >
+          </section>
+          <section id="display" hidden>
+            <h3>Display units</h3>
+            <p class="help">Choose how readings are displayed.</p>
+            <div class="unit-grid">
+              <label
+                >Airspeed<select name="speed">
+                  <option value="kmh">km/h</option>
+                  <option value="mph">mph</option>
+                  <option value="kn">knots</option>
+                </select></label
+              ><label
+                >Altitude<select name="altitude">
+                  <option value="m">metres (m)</option>
+                  <option value="ft">feet (ft)</option>
+                </select></label
+              ><label
+                >Distance<select name="distance">
+                  <option value="km">kilometres (km)</option>
+                  <option value="mi">miles (mi)</option>
+                  <option value="ft">feet (ft)</option>
+                  <option value="yd">yards (yd)</option>
+                  <option value="nm">nautical miles (nm)</option>
+                </select><small>Not used in this view, as in v1.</small></label
+              ><label
+                >Climb rate<select name="climb">
+                  <option value="ms">metres per second (m/s)</option>
+                  <option value="ftmin">feet per minute (ft/min)</option>
+                </select></label
+              ><label
+                >Temperature<select name="temp">
+                  <option value="c">Celsius (°C)</option>
+                  <option value="f">Fahrenheit (°F)</option>
+                </select></label
+              >
+            </div>
+          </section>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" id="cancel-settings" class="button-secondary">
+            Cancel
+          </button><button type="submit" class="button-primary">
+            Save preferences
+          </button>
+        </div>
+      </form>
+    </dialog>
   </body>
 </html>
