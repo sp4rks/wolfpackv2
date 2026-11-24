@@ -17,7 +17,7 @@ export function normalizeTelemetry(stateValue: unknown, indicatorsValue: unknown
   if (indicators?.army && indicators.army !== "air") return null;
   const iasKph = reading(state?.["IAS, km/h"]);
   const altitudeM = reading(state?.["H, m"]);
-  const heading = reading(indicators?.compass);
+  const heading = reading(indicators?.compass) ?? reading(indicators?.compass1);
   const sample: Telemetry = {
     aircraft: aircraftId(indicators?.type),
     iasKph,

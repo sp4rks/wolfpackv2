@@ -11,6 +11,8 @@ export default defineConfig({
     previewUrls: false,
     assets: { runWorkerFirst: ["/api/*"] },
     env: {
+      PLAYER_STATS_LIMIT: bindings.rateLimit({ namespace: "634105714", simple: { limit: 20, period: 60 } }),
+      REFERENCE: bindings.d1({ id: "366ef216-0345-47c0-a432-561f2c40e7a8", name: "wolfpack-reference" }),
       SQUADS: bindings.durableObject({ worker: "wolfpack", exportName: "SquadRoom" }),
     },
     exports: {

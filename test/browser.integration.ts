@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
 // Run against cf dev. Every game request is intercepted: never touches port 8111.
 const origin = process.env.TEST_ORIGIN ?? "http://127.0.0.1:5178";
@@ -8,11 +8,13 @@ let browser: Browser | undefined;
 afterAll(async () => { await browser?.close(); });
 const waitText = (page: Page, selector: string, text: string) => page.waitForFunction(([s, t]) => document.querySelector(s)?.textContent?.includes(t), [selector, text], { timeout: 9000 });
 const waitVisible = (page: Page, selector: string, visible: boolean) => page.waitForFunction(([s, v]) => (document.querySelector(s) as HTMLElement)?.hidden === !v, [selector, visible] as const, { timeout: 9000 });
+const referenceFixtures = (context: BrowserContext) => context.route("**/api/climb-speed?**", route => route.fulfill({ json: { normalKph: null, wepKph: null } }));
 
 test("responsive live layout, accessible icon controls and native map aspect", async () => {
   const instance = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   try {
     const page = await instance.newPage();
+    await referenceFixtures(page.context());
     await page.route("http://127.0.0.1:8111/**", async route => {
       const path = new URL(route.request().url()).pathname;
       if (path === "/map.img") return route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="1024"/>' });
@@ -20,40 +22,31 @@ test("responsive live layout, accessible icon controls and native map aspect", a
     });
     await page.goto(origin);
     await waitVisible(page, "#live-map", true);
-    expect(await page.locator(".squad thead th").allTextContents()).toEqual(["Player", "Aircraft", "IAS", "Altitude", "Bearing", "Climb", "Throttle"]);
-    expect(await page.locator(".primary-readings > div").count()).toBe(4);
-    expect(await page.locator(".secondary-readings > div").count()).toBe(4);
-    expect(await page.locator("#mode-toggle, #share, .connection-bar, .sample-marker").count()).toBe(0);
+    expect(await page.locator(".squad thead th").allTextContents()).toEqual(["Player", "Aircraft", "Vy 100%", "Vy WEP", "IAS", "Altitude", "Bearing", "Climb", "Throttle"]);
+    expect(await page.locator(".instrument-readings > div").count()).toBe(8);
+    expect(await page.locator(".trace").count()).toBe(7);
+    expect(await page.locator("#show-own, #mode-toggle, #share, .connection-bar, .sample-marker").count()).toBe(0);
     expect(await page.getByRole("button", { name: "Settings", exact: true }).count()).toBe(1);
     expect(await page.getByRole("button", { name: "Reconnect game and squad" }).count()).toBe(1);
+    expect(await page.locator(".connection-dot").count()).toBe(2);
     for (const [width, height] of [[1440, 900], [1024, 768], [901, 768], [800, 600], [768, 1024], [390, 844]]) {
       await page.setViewportSize({ width, height });
       const layout = await page.evaluate(() => {
         const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-        return {
-          map: rect("#map").toJSON(), primary: rect(".instruments").toJSON(),
-          support: rect(".supporting").toJSON(), chat: rect(".chat").toJSON(),
-          brand: rect(".brand").toJSON(), title: rect(".mast-title h1").toJSON(),
-          settings: rect("#open-settings").toJSON(), reconnect: rect("#reconnect").toJSON(), ias: getComputedStyle(document.querySelector('[data-value="ias"]')!).fontSize,
-        };
+        return { map: rect("#map").toJSON(), instruments: rect(".instruments").toJSON(), sightings: rect(".sightings").toJSON(), squad: rect(".squad").toJSON(), chat: rect(".chat").toJSON(), sidebar: rect(".sidebar").toJSON(), mark: rect(".brand img").toJSON(), ias: getComputedStyle(document.querySelector('[data-value="ias"]')!).fontSize };
       });
-      expect(layout.settings.width).toBe(44); expect(layout.settings.height).toBe(44);
-      expect(layout.reconnect.width).toBe(44); expect(layout.reconnect.height).toBe(44);
-      expect(layout.settings.right).toBeLessThanOrEqual(layout.reconnect.left);
-      expect(layout.title.right).toBeLessThanOrEqual(layout.settings.left);
-      expect(layout.reconnect.right).toBeLessThanOrEqual(width);
+      expect(layout.sidebar.width).toBe(width <= 700 ? 78 : width <= 1100 ? 102 : 132);
+      expect(layout.mark.width).toBe(width <= 700 ? 45 : 52.5);
+      expect(layout.squad.bottom).toBeLessThanOrEqual(layout.sightings.top);
+      expect(layout.sightings.bottom).toBeLessThanOrEqual(layout.map.top);
+      expect(layout.chat.top).toBeGreaterThanOrEqual(layout.instruments.bottom);
       if (width >= 701 && width > height) {
-        expect(layout.primary.left).toBeGreaterThan(layout.map.right - 1);
+        expect(layout.instruments.left).toBeGreaterThan(layout.map.right - 1);
         expect(layout.chat.left).toBeGreaterThan(layout.map.right - 1);
-      } else {
-        expect(layout.primary.bottom).toBeLessThanOrEqual(layout.map.top);
-        expect(layout.support.top).toBeGreaterThanOrEqual(layout.map.bottom);
-      }
-      if (width === 1440) {
-        expect(layout.ias).toBe("52px");
-        expect(layout.brand.right).toBeLessThan(layout.title.left);
-        expect(layout.title.right).toBeLessThan(layout.settings.left);
-      }
+      } else expect(layout.instruments.top).toBeGreaterThanOrEqual(layout.map.bottom);
+      expect(layout.ias).toBe(width <= 700 ? "32px" : "40px");
+      if (width === 1440) expect(await page.locator(".squad table").evaluate(el => getComputedStyle(el).display)).toBe("table");
+      if (width === 1024 || width === 390) expect(await page.locator(".squad table").evaluate(el => getComputedStyle(el).display)).toBe("block");
       await page.evaluate(() => { document.documentElement.style.fontSize = "24px"; });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       const squadBounds = await page.evaluate(() => {
@@ -74,13 +67,14 @@ test("responsive live layout, accessible icon controls and native map aspect", a
 test("automatic game polling, reconnect and squad publishing remain independent", async () => {
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   const context = await browser.newContext();
+  await referenceFixtures(context);
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
   const pilot = await context.newPage();
   const viewer = await context.newPage();
   const requests: Array<{ page: Page; path: string }> = [];
   let generation: number | null = null;
   let instrumentValid = true;
-  let aircraft: string | undefined = "p_51";
+  let aircraft: string | undefined = "p-51_mk1a_usaaf";
   let imageError = false;
   let stalled = false;
   const stalledPaths = new Set<string>();
@@ -109,8 +103,9 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await pilot.goto(origin);
   await viewer.goto(origin);
   await waitText(pilot, "#feed-status", "Connected to local game instruments");
-  expect(await pilot.locator("#squad-rows td").getAttribute("colspan")).toBe("7");
-  expect(await pilot.locator("#feed-status").textContent()).toContain("p_51 · recent history");
+  expect(await pilot.locator("#squad-rows tr").count()).toBe(1);
+  expect(await pilot.locator("#squad-rows").textContent()).toContain("(you)");
+  expect(await pilot.locator("#feed-status").textContent()).toContain("p-51_mk1a_usaaf · recent history");
   expect(await pilot.locator("#instrument-subtitle").count()).toBe(0);
   const unchangedAnnouncements = await pilot.evaluate(() => new Promise<number>(resolve => {
     let changes = 0;
@@ -163,14 +158,10 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   const remoteAircraft = viewer.locator("#squad-rows tr").filter({ hasNotText: "(you)" }).locator('td[data-label="Aircraft"]');
   const viewerAircraft = viewer.locator("#squad-rows tr").filter({ hasText: "(you)" }).locator('td[data-label="Aircraft"]');
   const ownAircraft = pilot.locator("#squad-rows tr").filter({ hasText: "(you)" }).locator('td[data-label="Aircraft"]');
-  expect(await remoteAircraft.textContent()).toBe("p_51");
+  expect(await remoteAircraft.textContent()).toBe("p-51_mk1a_usaaf");
   expect(await viewerAircraft.textContent()).toBe("—");
-  expect(await ownAircraft.textContent()).toBe("p_51");
-  await pilot.locator("#show-own").uncheck();
-  expect(await ownAircraft.count()).toBe(0);
-  expect(await remoteAircraft.textContent()).toBe("p_51");
-  await pilot.locator("#show-own").check();
-  expect(await ownAircraft.textContent()).toBe("p_51");
+  expect(await ownAircraft.textContent()).toBe("p-51_mk1a_usaaf");
+  expect(await pilot.locator("#show-own").count()).toBe(0);
 
   // A missing model is independent of the other readings, and updates propagate.
   aircraft = undefined;
@@ -178,8 +169,13 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   expect(await viewer.locator("#squad-rows").textContent()).toContain("321 km/h");
   aircraft = "long_aircraft_model_".repeat(5);
   await remoteAircraft.getByText(aircraft, { exact: true }).waitFor();
-  for (const [width, height] of [[901, 768], [390, 844]]) {
+  for (const [width, height] of [[1440, 900], [1024, 768], [901, 768], [390, 844]]) {
     await viewer.setViewportSize({ width, height });
+    if (width === 1440) {
+      expect(await viewer.locator(".squad table").evaluate(el => getComputedStyle(el).display)).toBe("table");
+      expect(await viewer.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      expect(await remoteAircraft.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    }
     await viewer.evaluate(() => { document.documentElement.style.fontSize = "24px"; });
     expect(await viewer.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     expect(await remoteAircraft.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -190,8 +186,8 @@ test("automatic game polling, reconnect and squad publishing remain independent"
     await viewer.evaluate(() => { document.documentElement.style.fontSize = ""; });
   }
   await viewer.setViewportSize({ width: 1280, height: 720 });
-  aircraft = "p_51";
-  await remoteAircraft.getByText("p_51", { exact: true }).waitFor();
+  aircraft = "p-51_mk1a_usaaf";
+  await remoteAircraft.getByText("p-51_mk1a_usaaf", { exact: true }).waitFor();
 
   // Save off sends a clear, while local instruments and map remain.
   await pilot.locator("#open-settings").click();
@@ -200,12 +196,8 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await pilot.waitForFunction(() => JSON.parse(localStorage.getItem("wolfpack-v2-preferences")!).shareInstruments === false);
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
   expect(await remoteAircraft.textContent()).toBe("—");
-  expect(await ownAircraft.textContent()).toBe("p_51");
-  await pilot.locator("#show-own").uncheck();
-  expect(await ownAircraft.count()).toBe(0);
-  expect(await remoteAircraft.textContent()).toBe("—");
-  await pilot.locator("#show-own").check();
-  expect(await ownAircraft.textContent()).toBe("p_51");
+  expect(await ownAircraft.textContent()).toBe("p-51_mk1a_usaaf");
+  expect(await ownAircraft.textContent()).toBe("p-51_mk1a_usaaf");
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("321");
   expect(await pilot.locator("#live-map").isVisible()).toBe(true);
   await pilot.locator("#open-settings").click();
@@ -281,11 +273,17 @@ test("automatic game polling, reconnect and squad publishing remain independent"
 test("chat is local, incremental and recovers without inventing sightings", async () => {
   browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   const context = await browser.newContext();
+  await referenceFixtures(context);
   const pilot = await context.newPage(), viewer = await context.newPage();
   let generation: number | null = 1, failChat = false, failMap = false, stallChat = false, chatStalled = false;
   let buffer = [{ id: 10, msg: "Attack Old(P-40)!", sender: "Old scout", enemy: false, mode: "Team" }];
   const requests: Array<{ page: Page; path: string; cursor: string | null }> = [];
   const sent: string[] = [];
+  const profileRequests: unknown[] = [];
+  await context.route("**/api/player-stats", async route => {
+    profileRequests.push(route.request().postDataJSON());
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ updated: "2026-11-20", modes: [{ mode: "r", battles: 300, killsPerBattle: 1.2, airKd: 2 }, { mode: "a", battles: 5, killsPerBattle: 3, airKd: null }, { mode: "s", battles: 1500, killsPerBattle: 2, airKd: 3 }] }) });
+  });
   pilot.on("websocket", ws => ws.on("framesent", frame => sent.push(String(frame.payload))));
   await context.route("http://127.0.0.1:8111/**", async route => {
     const req = route.request(), url = new URL(req.url()), path = url.pathname;
@@ -328,6 +326,26 @@ test("chat is local, incremental and recovers without inventing sightings", asyn
   expect(requests.some(r => r.path === "/gamechat" && r.cursor === "10")).toBe(true);
   await pilot.getByRole("button", { name: "Canniballistic" }).click();
   expect(await pilot.locator("#selected-grid").textContent()).toBe("D4");
+  await waitText(pilot, "#selected-stats", "updated 2026-11-20");
+  expect(profileRequests).toEqual([{ nickname: "Canniballistic" }]);
+  expect(await pilot.locator("#selected-stats").textContent()).toContain("low sample");
+  const battleColour = (row: number) => pilot.locator("#selected-stats tbody tr").nth(row).locator("td").nth(3).locator("span").first().evaluate(el => getComputedStyle(el).color);
+  expect(await battleColour(0)).toBe("rgb(35, 100, 58)");
+  expect(await battleColour(1)).toBe("rgb(155, 38, 36)");
+  expect(await battleColour(2)).toBe("rgb(103, 43, 139)");
+  expect(await pilot.locator("#selected-stats tbody tr").nth(0).locator("td").nth(3).locator(".visually-hidden").textContent()).toContain("typical experience");
+  await pilot.setViewportSize({ width: 390, height: 844 });
+  await pilot.evaluate(() => { document.documentElement.style.fontSize = "24px"; });
+  expect(await pilot.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  expect(await pilot.locator("#selected-stats").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await pilot.evaluate(() => { document.documentElement.style.fontSize = ""; });
+  await pilot.setViewportSize({ width: 1280, height: 720 });
+  await pilot.locator("#open-settings").click();
+  expect(await pilot.locator('[name="playerStats"]').isChecked()).toBe(true);
+  await pilot.locator('[name="playerStats"]').uncheck();
+  await pilot.locator('#settings-form button[type="submit"]').click();
+  expect(await pilot.locator("#selected-stats").textContent()).toContain("lookup is off");
+  expect(await pilot.locator("#player-stats-disclosure").textContent()).toContain("lookups are off");
   expect(await pilot.locator("#selected-reporter").textContent()).toContain("Scout");
   await pilot.getByRole("button", { name: "Canniballistic" }).focus();
   await pilot.waitForTimeout(1200);
@@ -356,6 +374,7 @@ test("chat is local, incremental and recovers without inventing sightings", asyn
   expect(await pilot.locator("#chat-list time").first().textContent()).toBe("—");
   buffer.push({ id: 2, msg: "Attack Fresh(Plane)!", sender: "Scout", enemy: false, mode: "Team" });
   await waitText(pilot, "#sighting-rows", "Fresh");
+  expect(profileRequests).toEqual([{ nickname: "Canniballistic" }]);
   generation = null;
   await waitText(pilot, "#map-status", "waiting for a valid map");
   expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
@@ -386,6 +405,7 @@ test("chat is local, incremental and recovers without inventing sightings", asyn
 test("game retries transient errors and permission denial requires reconnect", async () => {
   browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   const context = await browser.newContext();
+  await referenceFixtures(context);
   const page = await context.newPage();
   let failing = true, stateRequests = 0;
   await page.addInitScript(() => {
@@ -424,6 +444,7 @@ test("game retries transient errors and permission denial requires reconnect", a
 test("reconnect preserves a requested room through joining or failure and ignores old sockets", async () => {
   browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   const context = await browser.newContext();
+  await referenceFixtures(context);
   const page = await context.newPage();
   await page.addInitScript(() => {
     class FakeSocket extends EventTarget {
@@ -477,5 +498,69 @@ test("reconnect preserves a requested room through joining or failure and ignore
   expect(await page.evaluate(() => (window as any).sockets.length)).toBe(3);
   await page.locator("#enter").click();
   expect(await page.evaluate(() => (window as any).sockets[3].protocols[1] === (window as any).sockets[2].protocols[1])).toBe(true);
+  await context.close();
+}, 30000);
+
+test("Vy references follow only the local aircraft, expire safely, and display with units and heading", async () => {
+  browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  const context = await browser.newContext(); await referenceFixtures(context); const page = await context.newPage();
+  let aircraft: string | null = "first", throttle = 110, heading: number | undefined = 0;
+  const calls: string[] = []; let release: (() => void) | undefined;
+  await page.route("**/api/climb-speed?**", async route => {
+    const id = new URL(route.request().url()).searchParams.get("aircraft")!; calls.push(id);
+    if (id === "first") { await new Promise<void>(resolve => { release = resolve; }); try { await route.fulfill({ json: { normalKph: 100, wepKph: 110 } }); } catch {} return; }
+    await route.fulfill({ json: { normalKph: 230, wepKph: 240 } });
+  });
+  await page.route("http://127.0.0.1:8111/**", route => {
+    const path = new URL(route.request().url()).pathname;
+    const data = path === "/state" ? { valid: true, "IAS, km/h": 245, "throttle 1, %": throttle } : path === "/indicators" ? { valid: true, type: aircraft, compass1: heading } : path === "/gamechat" ? [] : { valid: false };
+    return route.fulfill({ json: data, headers: { "Access-Control-Allow-Origin": "*" } });
+  });
+  await page.goto(origin); await page.waitForFunction(() => document.querySelector('#bearing')?.textContent === '000');
+  expect(await page.locator('#bearing-direction').textContent()).toBe('° N');
+  expect(await page.locator('#own-bearing-arrow svg').getAttribute('style')).toContain('0deg');
+  expect(calls).toEqual(["first"]);
+  aircraft = "second"; await page.waitForFunction(() => document.querySelector('#squad-rows')?.textContent?.includes('240 km/h'));
+  expect(await page.locator('[data-value="ias"]').getAttribute('aria-label')).toContain('WEP');
+  release?.(); await page.waitForTimeout(100);
+  expect(await page.locator('#squad-rows').textContent()).toContain('230 km/h');
+  expect(await page.locator('#squad-rows').textContent()).not.toContain('100 km/h');
+  throttle = 80; heading = undefined;
+  await page.waitForFunction(() => document.querySelector('[data-value="ias"]')?.getAttribute('aria-label')?.includes('100%'));
+  await page.waitForFunction(() => !document.querySelector('#own-bearing-arrow svg'));
+  await page.locator('#open-settings').click(); await page.locator('[data-section="display"]').click();
+  await page.locator('[name="speed"]').selectOption('mph'); await page.locator('#settings-form button[type="submit"]').click();
+  expect(await page.locator('#squad-rows').textContent()).toContain('143 mph');
+  expect(calls).toEqual(["first", "second"]);
+  aircraft = null; await page.waitForFunction(() => document.querySelector('[data-value="ias"]')?.getAttribute('aria-label') === null);
+  await context.close();
+}, 30000);
+
+test("public profile opt-out aborts pending results and does not backfill", async () => {
+  browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  const context = await browser.newContext(); await referenceFixtures(context); const page = await context.newPage();
+  let messages: Array<{id: number; msg: string; sender: string; enemy: boolean}> = [{ id: 1, msg: 'hello', sender: 'Scout', enemy: false }];
+  const requests: unknown[] = []; let release: (() => void) | undefined;
+  await page.route('**/api/player-stats', async route => {
+    requests.push(route.request().postDataJSON());
+    await new Promise<void>(resolve => { release = resolve; });
+    try { await route.fulfill({ json: { updated: '2026-11-20', modes: [{ mode: 'r', battles: 99, killsPerBattle: 2, airKd: 3 }] } }); } catch {}
+  });
+  await page.route('http://127.0.0.1:8111/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    return route.fulfill({ json: path === '/gamechat' ? messages : { valid: false }, headers: { 'Access-Control-Allow-Origin': '*' } });
+  });
+  await page.goto(origin); await waitText(page, '#chat-list', 'hello');
+  messages.push({ id: 2, msg: 'Attack =TAG= Ace_1(Plane)! [D4]', sender: 'Scout', enemy: false });
+  await waitText(page, '#selected-stats', 'Looking up');
+  expect(requests).toEqual([{ nickname: 'Ace_1' }]);
+  await page.locator('#open-settings').click(); await page.locator('[name="playerStats"]').uncheck(); await page.locator('#settings-form button[type="submit"]').click();
+  expect(await page.locator('#selected-stats').textContent()).toContain('lookup is off');
+  release?.(); await page.waitForTimeout(200);
+  expect(await page.locator('#selected-stats').textContent()).not.toContain('2026-11-20');
+  messages.push({ id: 3, msg: 'Attack Another(Plane)!', sender: 'Scout', enemy: false });
+  await waitText(page, '#sighting-rows', 'Another'); expect(requests).toHaveLength(1);
+  await page.locator('#open-settings').click(); await page.locator('[name="playerStats"]').check(); await page.locator('#settings-form button[type="submit"]').click();
+  await page.waitForTimeout(250); expect(requests).toHaveLength(1);
   await context.close();
 }, 30000);

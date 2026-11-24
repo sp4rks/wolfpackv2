@@ -7,6 +7,7 @@
       "devDependencies": {
         "@cloudflare/vite-plugin": "2.0.0-rc.0",
         "cf": "1.0.0-rc.4",
+        "miniflare": "5.20261116.0-beta",
         "playwright": "1.63.0",
         "typescript": "7.0.2",
         "vite": "8.3.4",

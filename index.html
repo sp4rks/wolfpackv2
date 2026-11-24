@@ -5,33 +5,87 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <title>Wolf Pack — Flight overview</title>
-    <link rel="icon" href="/wolf.svg" type="image/svg+xml">
+    <link rel="icon" href="/wolf.png" type="image/png">
     <link rel="stylesheet" href="/src/client/dashboard.css">
     <script type="module" src="/src/client/dashboard.ts"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to flight overview</a>
-    <header class="masthead">
-      <a class="brand" href="/" aria-label="Wolf Pack home"
-        ><img src="/wolf.svg" alt=""><span>WOLF <strong>PACK</strong></span></a
-      >
-      <div class="mast-title"><h1>Flight overview</h1><p id="page-subtitle">Local game and squad</p></div>
-      <div class="mast-actions">
-        <button class="icon-button" id="open-settings" type="button" aria-label="Settings" title="Settings">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM19 13.4l1.4 1.1-1.5 2.6-1.7-.6a7 7 0 0 1-2.4 1.4l-.3 1.8h-3l-.3-1.8a7 7 0 0 1-2.4-1.4l-1.7.6-1.5-2.6L7 13.4a7 7 0 0 1 0-2.8L5.6 9.5l1.5-2.6 1.7.6a7 7 0 0 1 2.4-1.4l.3-1.8h3l.3 1.8a7 7 0 0 1 2.4 1.4l1.7-.6 1.5 2.6-1.4 1.1a7 7 0 0 1 0 2.8Z"
-            />
-          </svg>
-        </button>
-        <button class="icon-button" id="reconnect" type="button" aria-label="Reconnect game and squad" title="Reconnect game and squad">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg>
-        </button>
-      </div>
-    </header>
+    <aside class="sidebar" aria-label="Wolf Pack controls">
+      <a class="brand" href="/" aria-label="Wolf Pack home"><img src="/wolf.png" alt=""><span>WOLF <strong>PACK</strong></span></a>
+      <button class="sidebar-action" id="open-settings" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM19 13.4l1.4 1.1-1.5 2.6-1.7-.6a7 7 0 0 1-2.4 1.4l-.3 1.8h-3l-.3-1.8a7 7 0 0 1-2.4-1.4l-1.7.6-1.5-2.6L7 13.4a7 7 0 0 1 0-2.8L5.6 9.5l1.5-2.6 1.7.6a7 7 0 0 1 2.4-1.4l.3-1.8h3l.3 1.8a7 7 0 0 1 2.4 1.4l1.7-.6 1.5 2.6-1.4 1.1a7 7 0 0 1 0 2.8Z"/></svg><span>Settings</span></button>
+      <button class="sidebar-action" id="reconnect" type="button" aria-label="Reconnect game and squad"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg><span>Reconnect</span></button>
+      <div class="connections" aria-label="Connection status">
+        <div class="connection"><button class="connection-dot" type="button" data-connection="game" aria-describedby="game-tooltip" aria-expanded="false"></button><span class="connection-tooltip" id="game-tooltip" role="tooltip" hidden></span></div>
+        <div class="connection"><button class="connection-dot" type="button" data-connection="squad" aria-describedby="squad-tooltip" aria-expanded="false"></button><span class="connection-tooltip" id="squad-tooltip" role="tooltip" hidden></span></div>
+      </div><span id="connection-announcement" class="visually-hidden" role="status" aria-live="polite"></span>
+    </aside>
     <main id="main" class="page">
-      <div class="dashboard">
-        <section class="map-panel panel" aria-labelledby="map-title">
+      <h1 class="visually-hidden">Flight overview</h1>
+      <section class="squad panel" aria-labelledby="squad-title">
+          <div class="section-head">
+            <div>
+              <h2 id="squad-title">Squad</h2>
+              <p id="squad-subtitle">Connected squad instruments · out-of-action status unavailable</p>
+            </div>
+            <div class="squad-controls">
+              <details class="awards">
+                <summary id="awards-summary">Awards unavailable</summary>
+                <div>
+                  <strong>Squad awards</strong><div id="awards-content"><p>Awards are unavailable.</p></div>
+                </div>
+              </details>
+            </div>
+          </div>
+          <div class="squad-connection">
+            <div class="connection-actions"><button id="enter" class="button-primary" type="button">Create squad</button><button id="leave" type="button" disabled>Leave squad</button><a id="invite" hidden>Invite link</a><button id="copy-invite" type="button" hidden>Copy invite</button></div>
+            <p id="squad-status" role="status">Not connected. Set your player name in Settings, then create or join a squad.</p>
+            <p id="publish-status" role="status"></p>
+          </div>
+          <p class="vy-disclosure">IAS colours compare each reading to your own aircraft’s Vy: WEP above 100% throttle (or 100% Vy if WEP is unavailable), otherwise 100% Vy. Within ±2 km/h is on target; colour reaches its limit at ±15%.</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Aircraft</th>
+                  <th>Vy 100%</th>
+                  <th>Vy WEP</th>
+                  <th>IAS</th>
+                  <th>Altitude</th>
+                  <th>Bearing</th>
+                  <th>Climb</th>
+                  <th>Throttle</th>
+                </tr>
+              </thead>
+              <tbody id="squad-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      <section class="sightings panel" aria-labelledby="sightings-title">
+          <div class="section-head">
+            <div>
+              <h2 id="sightings-title">Sightings</h2>
+              <p>Local radio reports · not live tracks or map positions. <span id="player-stats-disclosure">New target nicknames are sent via Wolf Pack to ThunderSkill; turn off in Settings.</span></p>
+            </div>
+            <span class="count" id="report-count">UNAVAILABLE</span>
+          </div>
+          <p class="empty-state" id="sighting-empty">Connecting to game chat…</p>
+          <div class="table-wrap">
+            <table class="sightings-table">
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Aircraft</th>
+                  <th>Location / alt.</th>
+                  <th>Age</th>
+                </tr>
+              </thead>
+              <tbody id="sighting-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      <section class="map-panel panel" aria-labelledby="map-title">
           <div class="section-head map-head">
             <div>
               <h2 id="map-title">Operating map</h2>
@@ -64,133 +118,23 @@
                 <span id="selected-age"></span><span id="selected-reporter"></span>
               </p>
             </div>
+            <div id="selected-stats" aria-live="polite"></div>
           </div>
         </section>
-        <div class="instrument-stack">
-        <section class="instruments panel" aria-labelledby="instrument-title">
-          <div class="section-head">
-            <div>
-              <h2 id="instrument-title">Your instruments</h2>
-              <p id="feed-status" role="status">Connecting to the local game. Allow loopback access if prompted.</p>
-            </div>
-          </div>
-          <div class="primary-readings">
-            <div>
-              <span>Indicated airspeed</span>
-              <p>
-                <strong data-value="ias">—</strong>
-                <small data-unit="speed">km/h</small>
-              </p>
-              <span class="trace" data-trace="ias"></span>
-            </div>
-            <div>
-              <span>Altitude</span>
-              <p>
-                <strong data-value="altitude">—</strong>
-                <small data-unit="altitude">m</small>
-              </p>
-              <span class="trace" data-trace="altitude"></span>
-            </div>
-            <div><span>Bearing</span><strong id="bearing">—</strong></div>
-            <div><span>Climb</span><strong><b data-value="climb">—</b> <small data-unit="climb">m/s</small> <small id="climb-angle"></small></strong><span class="trace" data-trace="climb"></span></div>
+      <section class="instruments panel" aria-labelledby="instrument-title">
+          <div class="section-head"><div><h2 id="instrument-title">Your instruments</h2><p id="feed-status" role="status">Connecting to the local game. Allow loopback access if prompted.</p></div></div>
+          <div class="instrument-readings">
+            <div><span>Indicated airspeed</span><p><strong data-value="ias">—</strong> <small data-unit="speed">km/h</small></p><span class="trace" data-trace="ias"></span></div>
+            <div><span>True airspeed</span><p><strong data-value="tas">—</strong> <small data-unit="speed">km/h</small></p><span class="trace" data-trace="tas"></span></div>
+            <div><span>Altitude</span><p><strong data-value="altitude">—</strong> <small data-unit="altitude">m</small></p><span class="trace" data-trace="altitude"></span></div>
+            <div><span>Bearing</span><p class="instrument-bearing"><strong id="bearing">—</strong><small id="bearing-direction"></small><span id="own-bearing-arrow" aria-hidden="true"></span></p></div>
+            <div><span>Climb</span><p><strong data-value="climb">—</strong> <small data-unit="climb">m/s</small> <small id="climb-angle"></small></p><span class="trace" data-trace="climb"></span></div>
+            <div><span>Throttle</span><p><strong data-value="throttle">—</strong> <small>%</small></p><span class="trace" data-trace="throttle"></span></div>
+            <div><span id="coolant-label">Water / engine temp</span><p><strong data-value="coolant">—</strong> <small data-unit="temp">°C</small></p><span class="trace" data-trace="coolant"></span></div>
+            <div><span>Oil temp</span><p><strong data-value="oil">—</strong> <small data-unit="temp">°C</small></p><span class="trace" data-trace="oil"></span></div>
           </div>
         </section>
-        <section class="supporting panel" aria-label="Supporting instruments">
-          <div class="secondary-readings">
-            <div>
-              <span>True airspeed</span
-              ><strong
-                ><b data-value="tas">—</b>
-                <small data-unit="speed">km/h</small></strong
-              ><span class="trace" data-trace="tas"></span>
-            </div>
-            <div>
-              <span>Throttle</span><strong><b data-value="throttle">—</b> <small>%</small></strong><span class="trace" data-trace="throttle"></span>
-            </div>
-            <div>
-              <span id="coolant-label">Water / engine temp</span
-              ><strong
-                ><b data-value="coolant">—</b>
-                <small data-unit="temp">°C</small></strong
-              ><span class="trace" data-trace="coolant"></span>
-            </div>
-            <div>
-              <span>Oil temp</span
-              ><strong
-                ><b data-value="oil">—</b>
-                <small data-unit="temp">°C</small></strong
-              ><span class="trace" data-trace="oil"></span>
-            </div>
-          </div>
-        </section>
-        </div>
-        <section class="sightings panel" aria-labelledby="sightings-title">
-          <div class="section-head">
-            <div>
-              <h2 id="sightings-title">Sightings</h2>
-              <p>Local radio reports · not live tracks or map positions</p>
-            </div>
-            <span class="count" id="report-count">UNAVAILABLE</span>
-          </div>
-          <p class="empty-state" id="sighting-empty">Connecting to game chat…</p>
-          <div class="table-wrap">
-            <table class="sightings-table">
-              <thead>
-                <tr>
-                  <th>Player</th>
-                  <th>Aircraft</th>
-                  <th>Location / alt.</th>
-                  <th>Age</th>
-                </tr>
-              </thead>
-              <tbody id="sighting-rows"></tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-      <div class="lower-grid">
-        <section class="squad panel" aria-labelledby="squad-title">
-          <div class="section-head">
-            <div>
-              <h2 id="squad-title">Squad</h2>
-              <p id="squad-subtitle">Connected squad instruments · out-of-action status unavailable</p>
-            </div>
-            <div class="squad-controls">
-              <details class="awards">
-                <summary id="awards-summary">Awards unavailable</summary>
-                <div>
-                  <strong>Squad awards</strong><div id="awards-content"><p>Awards are unavailable.</p></div>
-                </div>
-              </details>
-              <label class="show-own"
-                ><input id="show-own" type="checkbox" checked>
-                Show my instruments</label
-              >
-            </div>
-          </div>
-          <div class="squad-connection">
-            <div class="connection-actions"><button id="enter" class="button-primary" type="button">Create squad</button><button id="leave" type="button" disabled>Leave squad</button><a id="invite" hidden>Invite link</a><button id="copy-invite" type="button" hidden>Copy invite</button></div>
-            <p id="squad-status" role="status">Not connected. Set your player name in Settings, then create or join a squad.</p>
-            <p id="publish-status" role="status"></p>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Player</th>
-                  <th>Aircraft</th>
-                  <th>IAS</th>
-                  <th>Altitude</th>
-                  <th>Bearing</th>
-                  <th>Climb</th>
-                  <th>Throttle</th>
-                </tr>
-              </thead>
-              <tbody id="squad-rows"></tbody>
-            </table>
-          </div>
-        </section>
-        <section class="chat panel" aria-labelledby="chat-title">
+      <section class="chat panel" aria-labelledby="chat-title">
           <div class="section-head">
             <div>
               <h2 id="chat-title">Game chat</h2>
@@ -199,7 +143,6 @@
           </div>
           <ul id="chat-list" tabindex="0" aria-label="Game chat messages"><li>Connecting…</li></ul>
         </section>
-      </div>
     </main>
     <dialog id="settings-dialog" aria-labelledby="settings-title">
       <form id="settings-form">
@@ -266,7 +209,10 @@
               ></label
             >
             <label class="sharing-preference"><input type="checkbox" name="shareInstruments"> Share flight instruments with squad
-              <small>On by default. When connected to the game and a squad, your own aircraft instruments are sent to the squad. The map, game chat and sightings stay local and are never shared.</small>
+              <small>On by default. When connected to the game and a squad, your own aircraft instruments are sent to the squad. The map, game chat and sighting details stay local. Target nicknames may be looked up as described below.</small>
+            </label>
+            <label class="sharing-preference"><input type="checkbox" name="playerStats"> Look up public player stats
+              <small>On by default. New named target nicknames are sent via Wolf Pack to ThunderSkill; chat text, reporter, position, squad and telemetry are not sent. Turn off to stop lookups and clear results. These are apparent targets, not verified enemies.</small>
             </label>
           </section>
           <section id="display" hidden>

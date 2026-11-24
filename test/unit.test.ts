@@ -141,3 +141,75 @@ describe("game chat reports", () => {
     expect(stripGameColors('<color=@red>Hello</color> <img src=x onerror=alert(1)>')).toBe('Hello <img src=x onerror=alert(1)>');
   });
 });
+
+test("Vy comparison and compass fallback are truthful", async () => {
+  const { iasComparison } = await import("../src/client/climb-speed.ts");
+  expect(iasComparison(230, 100, { normalKph: 230, wepKph: 240 })?.description).toContain("100%");
+  expect(iasComparison(240, 101, { normalKph: 230, wepKph: 240 })?.description).toContain("WEP");
+  expect(iasComparison(240, 101, { normalKph: 230, wepKph: null })?.description).toContain("WEP reference unavailable");
+  expect(iasComparison(null, 100, { normalKph: 230, wepKph: 240 })).toBeNull();
+  expect(iasComparison(230, 100, { normalKph: null, wepKph: 240 })).toBeNull();
+  expect(normalizeTelemetry({ valid: true, "IAS, km/h": 1 }, { valid: true, compass1: 0 })?.headingDeg).toBe(0);
+  expect(normalizeTelemetry({ valid: true, "IAS, km/h": 1 }, { valid: true, compass1: -90 })?.headingDeg).toBe(270);
+});
+
+test("public profile normalization and heuristic metrics", async () => {
+  const { nickname, publicStats } = await import("../src/shared/player-stats.ts");
+  const { statColour, experienceColour } = await import("../src/client/player-stats.ts");
+  expect(preferences({}).playerStats).toBe(true);
+  expect(preferences({ playerStats: false }).playerStats).toBe(false);
+  expect(nickname("=TAG= Ace_1")).toBe("Ace_1");
+  for (const name of ["*Ace", ".", "..", "123456", "Player123", "Player 1", "Player_1", "Player-1", "Player.1", "=TAG= Player 1", "../Ace", "Ace/name", "Ace@unknown", "Ace#x"]) expect(nickname(name)).toBeNull();
+  for (const name of ["Ace Pilot", "Éclair", "A\u0301ce", "Ace@live", "Ace@psn", "Ace#123", "Ace@live#123", "Ace#123@psn"]) expect(nickname(name)).toBe(name);
+  const payload = { stats: { nick: "Ace_1", last_stat: "2026-11-20 12:30:00", a: { mission: 10, kb_pvp_air: 1.2, kd_pvp_air: null }, r: { mission: 20, kb_pvp_air: 2, kd_pvp_air: 3 }, s: { mission: 0 } } };
+  expect(publicStats(payload, "ace_1")).toEqual({ updated: "2026-11-20", modes: [{ mode: "a", battles: 10, killsPerBattle: 1.2, airKd: null }, { mode: "r", battles: 20, killsPerBattle: 2, airKd: 3 }] });
+  expect(publicStats(payload, "Other")).toBeNull();
+  expect(statColour(2, "kills", 19)).toBeNull(); expect(statColour(null, "kd", 50)).toBeNull();
+  expect(statColour(0, "kills", 20)?.label).toBe("low"); expect(statColour(1, "kills", 20)?.label).toBe("typical"); expect(statColour(2, "kills", 20)?.label).toBe("high");
+  expect(experienceColour(20)).toEqual({ color: "rgb(155, 38, 36)", label: "low" });
+  expect(experienceColour(300)).toEqual({ color: "rgb(35, 100, 58)", label: "typical" });
+  expect(experienceColour(1500)).toEqual({ color: "rgb(103, 43, 139)", label: "high" });
+  expect(experienceColour(0)).toBeNull();
+});
+
+test("player stats endpoint forwards only a bounded nickname and honors provider privacy", async () => {
+  const { playerStats } = await import("../src/worker/player-stats.ts");
+  const originalFetch = globalThis.fetch;
+  const seen: { url: string; init?: RequestInit }[] = [];
+  let status = 200, noMissions = false;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    seen.push({ url: String(input), init });
+    return Response.json({ stats: { nick: "Ace_1", last_stat: "2026-11-20 00:00:00", a: { mission: noMissions ? 0 : 22, kb_pvp_air: 1, kd_pvp_air: 2 }, r: { mission: 0 }, s: { mission: 0 }, secret: "not returned" } }, { status, headers: status === 302 ? { Location: "https://untrusted.example/collect" } : {} });
+  }) as typeof fetch;
+  const env = { PLAYER_STATS_LIMIT: { limit: async () => ({ success: true }) } } as any;
+  const url = new URL("https://example.test/api/player-stats");
+  const request = (body: string, origin = url.origin) => new Request(url, { method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body });
+  try {
+    expect((await playerStats(request('{"nickname":"Ace_1","position":"D4"}'), env, url)).status).toBe(400);
+    expect((await playerStats(request('{"nickname":"Ace_1"}', "https://other.test"), env, url)).status).toBe(403);
+    expect((await playerStats(request('{"nickname":"' + "a".repeat(600) + '"}'), env, url)).status).toBe(400);
+    const response = await playerStats(request('{"nickname":"Ace_1"}'), env, url);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ updated: "2026-11-20", modes: [{ mode: "a", battles: 22, killsPerBattle: 1, airKd: 2 }] });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url).toBe("https://www.thunderskill.com/en/stat/Ace_1/export/json");
+    expect(seen[0]!.init?.headers).toBeUndefined(); expect(seen[0]!.init?.body).toBeUndefined();
+    expect(seen[0]!.init?.redirect).toBe("manual");
+    expect((await playerStats(request('{"nickname":".."}'), env, url)).status).toBe(400);
+    expect((await playerStats(request('{"nickname":"Player 1"}'), env, url)).status).toBe(400);
+    // A returned mismatched nickname stays unavailable, but the outbound path is safely encoded.
+    expect((await playerStats(request('{"nickname":"Ace Pilot@live#123"}'), env, url)).status).toBe(503);
+    expect(seen.at(-1)?.url).toBe("https://www.thunderskill.com/en/stat/Ace%20Pilot%40live%23123/export/json");
+    noMissions = true;
+    expect(await (await playerStats(request('{"nickname":"Ace_1"}'), env, url)).json()).toEqual({ updated: "2026-11-20", modes: [] });
+    status = 403; expect((await playerStats(request('{"nickname":"Ace_1"}'), env, url)).status).toBe(503);
+    status = 404; expect((await playerStats(request('{"nickname":"Ace_1"}'), env, url)).status).toBe(503);
+    status = 302;
+    const beforeRedirect = seen.length;
+    expect((await playerStats(request('{"nickname":"Ace_1"}'), env, url)).status).toBe(503);
+    expect(seen).toHaveLength(beforeRedirect + 1);
+    expect(seen.at(-1)?.init?.redirect).toBe("manual");
+    const limited = { PLAYER_STATS_LIMIT: { limit: async () => ({ success: false }) } } as any;
+    expect((await playerStats(request('{"nickname":"Ace_1"}'), limited, url)).status).toBe(429);
+  } finally { globalThis.fetch = originalFetch; }
+});

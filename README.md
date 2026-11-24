@@ -3,8 +3,7 @@
 An automatic, browser-only War Thunder aircraft feed and invite-only squad relay.
 The Spotter’s Index UI follows the approved readability design snapshot from
 `designs/wolfpack-v2`, based on revision
-`7e3890382ae5b7a0af7b34e503e43255786f65a6` (snapshot CSS SHA `effa21d8`,
-guide SHA `a7856e77`).
+`b2f16417bea55514d5ca9c8a3c315136b0a7a073`.
 
 ## Local verification
 
@@ -14,6 +13,7 @@ Requires Bun and a Node version supported by `package.json`. Install with
 ```sh
 bun run check                    # generated Worker types, TypeScript, unit tests
 bun run build                    # local build only
+bun run test:reference           # disposable workerd D1 fixture; run after build
 bun run cf deploy --dry-run      # build and validate; no API request or upload
 bun run verify:dashboard         # full dashboard browser fixture suite
 ```
@@ -35,7 +35,8 @@ not contact the live game or production and does not deploy. Run the full
 failure, isolation and cleanup paths, run `bun run test:dashboard-runner`.
 
 For manual integration testing, start `bun run dev -- --host 127.0.0.1 --port 5173`,
-then in a second terminal:
+then run these in a second terminal. Set `TEST_ORIGIN` if the server is not
+on the test's default URL:
 
 ```sh
 bun run test:room                # real local Worker and Durable Object sockets
@@ -85,8 +86,36 @@ generically: the existing wire field can contain either the state water
 temperature or the indicators engine-temperature fallback.
 
 Selecting a sighting shows its reported details; unknown values remain unknown.
-Display units and the show-own choice are saved locally; distance is saved but
+Display units are saved locally; distance is saved but
 not used. The squad name is a local label, not the bearer invite or room key.
+
+## Reference speeds and public stats
+
+Vy values are chart IAS targets in km/h, not vertical speeds in m/s. They come
+from the existing `wolfpack-reference` D1 `mec_aircraft` data, whose
+`mec_workbook.source_url` identifies the [MEC workbook](https://docs.google.com/spreadsheets/d/1rmN88QSthSclf7kxd6-miXjPFZEGmBQ5xMumqixKC6s/edit#gid=1236982432).
+The explicit ID-to-row mapping was checked against flightmodel IDs and English
+localisation from War-Thunder-Datamine commit `79341db6c04e114bce622659fd37dfbcae310559`;
+no fuzzy matching is used. One unverified duplicate LaGG row is intentionally
+omitted. The Worker validates all four mapped row identifiers and queries only
+reference columns, with no production schema change or writes. The browser
+requests its own aircraft ID only, never a squadmate's model; references can be
+missing. IAS comparisons use the viewer's aircraft target and each row's
+throttle, not that squadmate's actual optimum. A ±2 km/h band is on target;
+colour saturates at ±15% and a textual description gives the deviation.
+
+ThunderSkill mode-wide air kills/battle and air K/D are heuristic context,
+not percentiles or current-aircraft performance. Battles and deaths can include
+ground play; fewer than 20 battles suppress lethality colours. Source dates are
+shown without a timezone claim. The source can be private, stale or unavailable.
+Battles use an illustrative logarithmic experience scale: 20 is low, 300
+typical and 1,500 high. These are not population percentiles.
+
+Lookups strip a recognized `=TAG= ` clan prefix but do not guess a `*`
+console identity. They accept bounded nicknames with spaces, Unicode letters and
+marks, an explicit `@live` or `@psn` suffix, and `#` followed by digits.
+Numeric privacy IDs, generic `Player 1` names, dot segments and unsafe path
+characters are rejected. Only an exact normalized nickname is sent.
 
 ## Integration seams
 
@@ -113,8 +142,17 @@ not used. The squad name is a local label, not the bearer invite or room key.
 
 Only `/state`, `/indicators`, `/map_info.json`, `/gamechat` and the map image
 are requested from `127.0.0.1:8111`; map-object and opponent endpoints are not requested.
-Chat and derived sightings stay in the browser's memory, are never sent to the
-squad or server, and are cleared when game reads restart.
+Chat and sighting details stay in the browser's memory, are never sent to the
+squad, and are cleared when game reads restart. **Public player lookup is on by
+default:** for eligible new named target callouts, the browser sends only the
+normalized target nickname to Wolf Pack, which requests that public profile from
+ThunderSkill. No chat text, reporter, position, squad or telemetry is sent in
+the lookup. Disable it in Settings to stop future requests and clear results;
+re-enabling does not backfill. Names are apparent targets, not verified enemies.
+The fixed public provider sees the requested nickname and its usual connection
+metadata; the same-origin check is not authentication. Provider failures and
+private/missing profiles are unavailable, not zero. The rate limiter is per
+Cloudflare location and is not a strict global abuse limit.
 The normalizer and relay allowlist own-aircraft instrument fields. Missing,
 invalid or non-finite values are ignored. Game variants and aircraft expose different fields, and a
 `valid` response is not proof that a player is in a battle.
