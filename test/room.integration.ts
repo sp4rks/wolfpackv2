@@ -66,10 +66,11 @@ test("two viewers relay, clear, disconnect and remain isolated", async () => {
   await c.opened;
   c.send({ type: "join", name: "Other" });
   expect((await c.next()).members).toHaveLength(1);
-  a.send({ type: "telemetry", sample: { iasKph: 321, enemy: "not relayed" } });
+  a.send({ type: "telemetry", sample: { iasKph: 321, climbMps: -4.5, enemy: "not relayed" } });
   const update = await b.next();
   expect(update.member.id).toBe(first.selfId);
   expect(update.member.sample.iasKph).toBe(321);
+  expect(update.member.sample.climbMps).toBe(-4.5);
   expect(update.member.sample.enemy).toBeUndefined();
   const late = connect(key);
   await late.opened;
@@ -89,6 +90,40 @@ test("two viewers relay, clear, disconnect and remain isolated", async () => {
   expect((await c.next()).member.name).toBe("Isolated");
   a.socket.close();
   expect(await b.next()).toEqual({ type: "left", id: first.selfId });
+});
+
+test("combat relay echoes sanitized calls and deduplicated absolute kill counts", async () => {
+  const key = createRoomKey(), a = connect(key), b = connect(key);
+  await Promise.all([a.opened, b.opened]);
+  a.send({ type: "join", name: "=TAG= Pilot" }); expect((await a.next()).kills).toBeNull();
+  b.send({ type: "join", name: "pilot" }); expect((await b.next()).kills).toBeNull(); await a.next();
+  const isolated = connect(createRoomKey()); await isolated.opened;
+  isolated.send({ type: "join", name: "Isolated" }); expect((await isolated.next()).kills).toBeNull();
+  const sighting = { player: "Target", aircraft: "Plane", grid: "D4", altitudeM: 3000, reporter: "Pilot", raw: "secret" };
+  a.send({ type: "sighting", sighting });
+  for (const peer of [a, b]) {
+    const got = await peer.next(); expect(got.type).toBe("sighting");
+    expect(got.sighting).toEqual({ player: "Target", aircraft: "Plane", grid: "D4", altitudeM: 3000, reporter: "Pilot" });
+  }
+  // Ordinary batches are not constrained by the telemetry rate.
+  for (let i = 0; i < 8; i++) a.send({ type: "sighting", sighting: { ...sighting, player: `Target${i}` } });
+  for (const peer of [a, b]) for (let i = 0; i < 8; i++) expect((await peer.next()).sighting.player).toBe(`Target${i}`);
+  a.send({ type: "kills", kills: 2 }); expect((await a.next()).kills).toBe(2); expect((await b.next()).kills).toBe(2);
+  // An ordered frame in the other room must not be preceded by combat traffic.
+  isolated.send({ type: "kills", kills: 7 });
+  expect(await isolated.next()).toEqual({ type: "kills", kills: 7 });
+  b.send({ type: "kills", kills: 3 }); expect((await a.next()).kills).toBe(3); expect((await b.next()).kills).toBe(3);
+  const late = connect(key); await late.opened; late.send({ type: "join", name: "Wing" });
+  expect((await late.next()).kills).toBe(3); await a.next(); await b.next();
+  late.send({ type: "kills", kills: 1 });
+  for (const peer of [a, b, late]) expect((await peer.next()).kills).toBe(4);
+  b.send({ type: "kills", kills: null });
+  for (const peer of [a, b, late]) expect((await peer.next()).kills).toBe(3);
+  late.socket.close();
+  expect((await a.next()).type).toBe("left"); expect((await a.next()).kills).toBe(2);
+  expect((await b.next()).type).toBe("left"); expect((await b.next()).kills).toBe(2);
+  a.send({ type: "kills", kills: null });
+  expect((await a.next()).kills).toBeNull(); expect((await b.next()).kills).toBeNull();
 });
 
 test("malformed messages and messages before joining close the connection", async () => {

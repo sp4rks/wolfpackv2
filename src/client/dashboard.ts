@@ -1,6 +1,5 @@
 import { statsLookup, statColour, experienceColour } from "./player-stats.ts";
 import { climbSpeedLookup, iasComparison } from "./climb-speed.ts";
-import type { ClimbSpeeds } from "./climb-speed.ts";
 import { createRoomKey, displayName, SAMPLE_LIFETIME_MS } from "../shared/protocol.ts";
 import type { Member, ServerMessage, Telemetry } from "../shared/protocol.ts";
 import { connectSquad, inviteKey, inviteUrl } from "./squad.ts";
@@ -8,7 +7,7 @@ import { GAME_ORIGIN, watchTelemetry } from "./telemetry.ts";
 import { killIdentity, watchHud } from "./hud.ts";
 import { watchMap } from "./map.ts";
 import type { Contact } from "./map.ts";
-import { parseSighting, stripGameColors, watchChat } from "./chat.ts";
+import { mergeSighting, parseSighting, stripGameColors, watchChat } from "./chat.ts";
 import type { ChatMessage, Sighting } from "./chat.ts";
 import { addHistory, altitude, bearing, choices, climb, climbAngle, climbUnit, defaults, emptyHistories, preferences, speed, speedUnit, temperature, tempUnit } from "./derived.ts";
 import type { HistoryKey, Preferences } from "./derived.ts";
@@ -40,6 +39,9 @@ let hudCounts: ReadonlyMap<string, number> = new Map();
 let chatStatus: "disconnected" | "connecting" | "live" | "retrying" = "disconnected";
 let chatMessages: ChatMessage[] = [];
 const liveReports = new Map<string, Sighting>();
+const localReports = new Map<string, Sighting>();
+const roomReports = new Map<string, Sighting>();
+let roomKills: number | null | undefined;
 let selectedKey: string | null = null;
 let knownMap: number | null = null;
 let mapAt = 0;
@@ -56,9 +58,8 @@ const members = new Map<string, { member: Member; seenAt: number }>();
 const enter = $<HTMLButtonElement>("#enter");
 const leave = $<HTMLButtonElement>("#leave");
 const invite = $<HTMLAnchorElement>("#invite");
-let reference: ClimbSpeeds | null = null;
 const profiles = statsLookup(() => updateSelection());
-const lookup = climbSpeedLookup(value => { reference = value; renderInstruments(); renderSquad(); });
+const lookup = climbSpeedLookup(() => { renderInstruments(); renderSquad(); });
 function arrow(heading: number | null | undefined): string {
   if (heading == null || !Number.isFinite(heading)) return "";
   const angle = (heading % 360 + 360) % 360;
@@ -83,6 +84,7 @@ const mapImage = $<HTMLImageElement>("#live-map");
 
 const traceNames: Record<string, HistoryKey> = { ias: "iasKph", tas: "tasKph", altitude: "altitudeM", climb: "climbMps", throttle: "throttlePct", coolant: "waterTempC", oil: "oilTempC" };
 function renderInstruments(): void {
+  syncReferences();
   const reading = own;
   const values: Record<string, string> = {
     ias: speed(reading?.iasKph ?? null, prefs), tas: speed(reading?.tasKph ?? null, prefs), altitude: altitude(reading?.altitudeM ?? null, prefs),
@@ -96,7 +98,7 @@ function renderInstruments(): void {
   text("#bearing-direction", heading === "—" ? "" : heading.slice(3));
   $("#own-bearing-arrow").innerHTML = arrow(reading?.headingDeg);
   const ias = $<HTMLElement>('[data-value="ias"]');
-  const comparison = iasComparison(reading?.iasKph ?? null, reading?.throttlePct ?? null, reference);
+  const comparison = iasComparison(reading?.iasKph ?? null, reading?.throttlePct ?? null, lookup.get(own?.aircraft));
   ias.style.color = comparison?.color ?? "";
   if (comparison) { ias.setAttribute("title", comparison.description); ias.setAttribute("aria-label", `${values.ias} ${speedUnit(prefs)}; ${comparison.description}`); } else { ias.removeAttribute("title"); ias.removeAttribute("aria-label"); }
   const angle = climbAngle(reading?.iasKph ?? null, reading?.climbMps ?? null);
@@ -115,25 +117,29 @@ function renderInstruments(): void {
 }
 const localSquadName = () => selfId ? members.get(selfId)?.member.name ?? prefs.player : prefs.player;
 const remoteSquad = () => Array.from(members.values(), ({ member }) => member).filter(member => member.id !== selfId);
+function syncReferences(): void { lookup.setActive([own?.aircraft, ...remoteSquad().map(member => member.sample?.aircraft)]); }
 function renderKillCount(): void {
-  const names = new Set([localSquadName(), ...remoteSquad().map(member => member.name)].map(killIdentity).filter((name): name is string => name !== null));
-  const kills = [...names].reduce((sum, name) => sum + (hudCounts.get(name) ?? 0), 0);
-  text("#kill-count", hudAvailable ? `${kills} KILL${kills === 1 ? "" : "S"}` : "— KILLS");
-  const label = hudAvailable ? `Squad: ${kills} observed kill${kills === 1 ? "" : "s"}` : "Squad kills unavailable";
+  const name = killIdentity(localSquadName());
+  const kills = roomKills !== undefined ? roomKills : hudAvailable ? (name ? hudCounts.get(name) ?? 0 : 0) : null;
+  text("#kill-count", kills !== null ? `${kills} KILL${kills === 1 ? "" : "S"}` : "— KILLS");
+  const label = kills !== null ? `Squad: ${kills} observed kill${kills === 1 ? "" : "s"}` : "Squad kills unavailable";
   const badge = $("#kill-count");
   if (badge.getAttribute("aria-label") !== label) badge.setAttribute("aria-label", label);
 }
 function renderSquad(): void {
-  const rows = [{ name: `${localSquadName()} (you)`, sample: own, local: true }, ...remoteSquad().map(member => ({ ...member, local: false }))];
-  const html = rows.map(({ name, sample: s, local }) => {
+  syncReferences();
+  const reference = lookup.get(own?.aircraft);
+  const rows = [{ name: `${localSquadName()} (you)`, sample: own }, ...remoteSquad()];
+  const html = rows.map(({ name, sample: s }) => {
     const comparison = iasComparison(s?.iasKph ?? null, s?.throttlePct ?? null, reference);
     const iasAttrs = comparison ? ` style="color:${comparison.color}" title="${escape(comparison.description)}"` : "";
+    const rowReference = lookup.get(s?.aircraft);
     const target = (value: number | null | undefined) => value == null ? "—" : `${speed(value, prefs)} ${speedUnit(prefs)}`;
-    const estimate = local && reference?.normalKph === null && reference.wepKph === null ? reference.estimatedKph : null;
+    const estimate = rowReference?.normalKph === null && rowReference.wepKph === null ? rowReference.estimatedKph : null;
     const targets = estimate != null
       ? `<td colspan="2" data-label="Vy estimate" title="Estimated sea-level Vy from the aircraft flight model; throttle setting unspecified.">${target(estimate)} (est.)</td>`
-      : `<td data-label="Vy 100%">${local ? target(reference?.normalKph) : "—"}</td><td data-label="Vy WEP">${local ? target(reference?.wepKph) : "—"}</td>`;
-    return `<tr><td>${escape(name)}</td><td data-label="Aircraft">${escape(s?.aircraft ?? "—")}</td>${targets}<td data-label="IAS"><span${iasAttrs}>${speed(s?.iasKph ?? null, prefs)} ${speedUnit(prefs)}${comparison ? `<span class="visually-hidden">. ${escape(comparison.description)}</span>` : ""}</span></td><td data-label="Altitude">${altitude(s?.altitudeM ?? null, prefs)} ${prefs.altitude}</td><td data-label="Bearing"><span class="bearing-value">${bearing(s?.headingDeg ?? null)} ${arrow(s?.headingDeg)}</span></td><td data-label="Climb">${climb(s?.climbMps ?? null, prefs)} ${climbUnit(prefs)}</td><td data-label="Throttle">${s?.throttlePct == null ? "—" : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(s.throttlePct)}%`}</td></tr>`;
+      : `<td data-label="Vy 100%">${target(rowReference?.normalKph)}</td><td data-label="Vy WEP">${target(rowReference?.wepKph)}</td>`;
+    return `<tr><td>${escape(name)}</td><td data-label="Aircraft">${escape(s?.aircraft ?? "—")}</td>${targets}<td data-label="IAS"><span${iasAttrs}>${speed(s?.iasKph ?? null, prefs)} ${speedUnit(prefs)}${comparison ? `<span class="visually-hidden">. ${escape(comparison.description)}</span>` : ""}</span></td><td data-label="Altitude">${altitude(s?.altitudeM ?? null, prefs)} ${prefs.altitude}</td><td data-label="Bearing"><span class="bearing-value">${bearing(s?.headingDeg ?? null)} ${arrow(s?.headingDeg)}</span></td><td data-label="Climb rate">${climb(s?.climbMps ?? null, prefs)} ${climbUnit(prefs)}</td><td data-label="Throttle">${s?.throttlePct == null ? "—" : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(s.throttlePct)}%`}</td></tr>`;
   }).join("");
   $("#squad-rows").innerHTML = html;
   renderKillCount();
@@ -143,7 +149,8 @@ function renderReports(): void {
   const rows = [...liveReports.values()].reverse().sort((a, b) => b.receivedAt - a.receivedAt);
   $("#sighting-rows").innerHTML = rows.map(r => `<tr data-target="${escape(r.key)}"><td><button type="button" data-target="${escape(r.key)}">${escape(r.player)}</button></td><td data-label="Aircraft">${escape(r.aircraft)}</td><td data-label="Location / alt.">${escape(r.grid ?? "Unknown")} · ${r.altitudeM === null ? "Unknown" : `${altitude(r.altitudeM, prefs)} ${prefs.altitude}`}</td><td data-label="Age" data-age="${r.receivedAt}"></td></tr>`).join("");
   visible("#sighting-empty", rows.length === 0);
-  text("#sighting-empty", chatStatus === "disconnected" ? "Game chat disconnected."
+  text("#sighting-empty", selfId ? "Waiting for local or squad sightings."
+    : chatStatus === "disconnected" ? "Game chat disconnected."
     : chatStatus === "connecting" ? "Connecting to game chat…"
     : chatStatus === "retrying" ? "Game chat unavailable; retrying for new English named target callouts."
     : "Waiting for a new English named target callout after connection.");
@@ -192,7 +199,20 @@ function updateAges(): void {
   const r = selectedKey ? liveReports.get(selectedKey) : undefined;
   if (r) text("#selected-age", age(r.receivedAt));
 }
-function clearReports(): void { profiles.clear(); liveReports.clear(); selectedKey = null; renderReports(); }
+function rebuildReports(): void {
+  liveReports.clear();
+  const reports = [...localReports.values(), ...roomReports.values()].sort((a, b) => a.receivedAt - b.receivedAt);
+  for (const report of reports) liveReports.set(report.key, mergeSighting(liveReports.get(report.key), report));
+  if (!selectedKey || !liveReports.has(selectedKey)) selectedKey = [...liveReports.keys()].at(-1) ?? null;
+  renderReports();
+}
+function addReport(store: Map<string, Sighting>, report: Sighting): void {
+  const merged = mergeSighting(store.get(report.key), report);
+  store.delete(report.key); store.set(report.key, merged);
+  while (store.size > 100) store.delete(store.keys().next().value!);
+}
+function clearReports(): void { profiles.clear(); localReports.clear(); roomReports.clear(); selectedKey = null; rebuildReports(); }
+function clearLocalReports(): void { profiles.clear(); localReports.clear(); selectedKey = null; rebuildReports(); }
 function renderChat(): void {
   const status = chatStatus === "disconnected" ? "Game chat disconnected." : chatStatus === "connecting" ? "Connecting to local game chat…" : chatStatus === "retrying" ? "Chat unavailable; retrying. Previous messages are not current." : "";
   const messages = chatMessages.map(m => {
@@ -205,10 +225,21 @@ function remember(member: Member): void { members.set(member.id, { member, seenA
 function roomMessage(message: ServerMessage): void {
   // Welcome snapshots contain no sample timestamp. Wait for a fresh update
   // instead of presenting a potentially almost-expired snapshot as current.
-  if (message.type === "welcome") { members.clear(); selfId = message.selfId; for (const member of message.members) remember({ ...member, sample: null }); }
+  if (message.type === "welcome") { members.clear(); selfId = message.selfId; roomKills = message.kills; for (const member of message.members) remember({ ...member, sample: null }); renderReports(); }
   else if (message.type === "member") remember(message.member);
-  else members.delete(message.id);
+  else if (message.type === "left") members.delete(message.id);
+  else if (message.type === "kills") { roomKills = message.kills; renderKillCount(); return; }
+  else if (message.type === "sighting") {
+    const s = message.sighting;
+    addReport(roomReports, { ...s, key: s.player.toLocaleLowerCase(), receivedAt: Date.now() });
+    rebuildReports();
+    return;
+  }
   renderSquad();
+}
+function syncKills(): void {
+  const identity = selfId ? killIdentity(localSquadName()) : null;
+  squad?.kills(hudAvailable && identity ? Math.min(100_000, hudCounts.get(identity) ?? 0) : null);
 }
 function renderPublishing(): void {
   text("#publish-status", !prefs.shareInstruments
@@ -265,21 +296,21 @@ mapImage.addEventListener("error", () => {
   text("#map-status", "Could not load the local game map. Retrying…"); visible("#map-status", true);
 });
 function stopKills(): void {
-  stopHud?.(); stopHud = undefined; hudAvailable = false; hudCounts = new Map(); renderKillCount();
+  stopHud?.(); stopHud = undefined; hudAvailable = false; hudCounts = new Map(); syncKills(); renderKillCount();
 }
 function stopGame(): void {
   stopKills();
   stopFeed?.(); stopFeed = undefined;
   stopMap?.(); stopMap = undefined;
   stopChat?.(); stopChat = undefined; chatStatus = "disconnected"; chatMessages = []; knownMap = null;
-  clearReports(); renderChat();
-  own = null; ownAt = 0; lookup.set(null); histories = emptyHistories(); syncPublishing();
+  clearLocalReports(); renderChat();
+  own = null; ownAt = 0; histories = emptyHistories(); syncPublishing();
   clearMap("Connecting to the local game map…");
   if (selfId && members.has(selfId)) remember({ ...members.get(selfId)!.member, sample: null });
   renderInstruments(); renderSquad();
 }
 function disconnect(message = "Disconnected from squad."): void {
-  generation++; const old = squad; squad = undefined; selfId = undefined; members.clear(); published = false; old?.close();
+  generation++; const old = squad; squad = undefined; selfId = undefined; members.clear(); published = false; roomKills = undefined; roomReports.clear(); old?.close(); rebuildReports();
   connection("squad", "disconnected", "Disconnected");
   enter.disabled = false; leave.disabled = !requestedRoom;
   visible("#invite", false); visible("#copy-invite", false); text("#squad-status", message); renderPublishing(); renderSquad();
@@ -294,7 +325,7 @@ function joinRequested(): void {
       if (status === "connecting") { connection("squad", "pending", "Connecting"); enter.disabled = true; leave.disabled = false; text("#squad-status", "Connecting to squad…"); }
       else if (status === "joined") { connection("squad", "connected", "Connected"); roomKey = key; invite.href = inviteUrl(key).href; visible("#invite", true); visible("#copy-invite", true); enter.textContent = "Rejoin squad"; text("#squad-status", "Connected. Share the private invite only with squadmates."); }
       else disconnect("Squad disconnected. Use Rejoin squad or reconnect to retry.");
-    }, onMessage(message) { if (token === generation) { roomMessage(message); if (message.type === "welcome") syncPublishing(); } } });
+    }, onMessage(message) { if (token === generation) { roomMessage(message); if (message.type === "welcome") { syncPublishing(); syncKills(); } } } });
   } catch { disconnect("Could not connect. Check the player name and invite, then retry."); }
 }
 enter.addEventListener("click", () => {
@@ -319,22 +350,22 @@ function startGame(): void {
   stopChat = watchChat(update => {
     const statusChanged = chatStatus !== update.status;
     chatStatus = update.status; chatMessages = update.messages;
-    if (update.reset) clearReports();
+    if (update.reset) clearLocalReports();
     let reportsChanged = false;
     for (const message of update.fresh) {
       const report = parseSighting(message);
       if (!report) continue;
       reportsChanged = true;
       if (prefs.playerStats) profiles.add(report.player);
-      liveReports.delete(report.key); liveReports.set(report.key, report);
-      while (liveReports.size > 100) liveReports.delete(liveReports.keys().next().value!);
-      if (!selectedKey || !liveReports.has(selectedKey)) selectedKey = report.key;
+      addReport(localReports, report);
+      const { player, aircraft, grid, altitudeM, reporter } = report;
+      if (update.relayFresh) squad?.sighting({ player, aircraft, grid, altitudeM, reporter });
     }
     if (statusChanged || update.fresh.length || update.reset) renderChat();
-    if (statusChanged || reportsChanged || update.reset) renderReports();
+    if (statusChanged || reportsChanged || update.reset) rebuildReports();
   });
   stopFeed = watchTelemetry(update => {
-    own = update.sample; ownAt = own ? performance.now() : 0; lookup.set(own?.aircraft ?? null); syncPublishing();
+    own = update.sample; ownAt = own ? performance.now() : 0; syncPublishing();
     connection("game", update.status === "live" || update.status === "waiting" ? "connected" : "disconnected", update.status === "live" ? "Connected" : update.status === "waiting" ? "Connected; instruments unavailable" : update.status === "denied" ? "Loopback access denied" : "Unreachable; retrying");
     if (own) addHistory(histories, own); else histories = emptyHistories();
     if (selfId && members.has(selfId)) remember({ ...members.get(selfId)!.member, sample: own });
@@ -358,7 +389,7 @@ function startGame(): void {
     if (knownMap !== update.generation || !stopHud) {
       if (knownMap !== null && knownMap !== update.generation) clearReports();
       stopKills(); knownMap = update.generation;
-      stopHud = watchHud(update => { hudAvailable = update.available; hudCounts = update.counts; renderKillCount(); });
+      stopHud = watchHud(update => { hudAvailable = update.available; hudCounts = update.counts; syncKills(); renderKillCount(); });
     }
     mapAt = performance.now();
     if (mapGeneration !== update.generation || !mapImage.hasAttribute("src")) {
@@ -440,9 +471,12 @@ renderPublishing(); renderInstruments(); renderSquad(); renderReports(); renderC
 startGame();
 setInterval(() => {
   let changed = false;
+  let expired = false;
+  for (const [key, report] of roomReports) if (Date.now() - report.receivedAt >= 120_000) { roomReports.delete(key); expired = true; }
+  if (expired) rebuildReports();
   for (const { member, seenAt } of members.values()) if (member.sample && performance.now() - seenAt >= SAMPLE_LIFETIME_MS) { member.sample = null; changed = true; }
   if (own && performance.now() - ownAt >= SAMPLE_LIFETIME_MS) {
-    own = null; ownAt = 0; lookup.set(null); histories = emptyHistories(); syncPublishing();
+    own = null; ownAt = 0; histories = emptyHistories(); syncPublishing();
     connection("game", "pending", "Readings stale; waiting for game");
     text("#feed-status", "Readings are stale; waiting for the local game."); visible("#feed-status", true); renderInstruments(); changed = true;
   }

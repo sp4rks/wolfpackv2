@@ -1,5 +1,5 @@
-import { displayName, isRoomKey, SOCKET_PATH, SOCKET_PROTOCOL } from "../shared/protocol.ts";
-import type { ClientMessage, ServerMessage, Telemetry } from "../shared/protocol.ts";
+import { displayName, isRoomKey, roomSighting, SOCKET_PATH, SOCKET_PROTOCOL } from "../shared/protocol.ts";
+import type { ClientMessage, RoomSighting, ServerMessage, Telemetry } from "../shared/protocol.ts";
 
 export type SquadStatus = "connecting" | "joined" | "disconnected";
 
@@ -28,6 +28,7 @@ export function connectSquad(options: {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(url, [SOCKET_PROTOCOL, `room.${options.roomKey}`]);
   let joined = false;
+  let combat = false;
   options.onStatus("connecting");
 
   function send(message: ClientMessage): void {
@@ -43,6 +44,7 @@ export function connectSquad(options: {
     const message = JSON.parse(event.data) as ServerMessage;
     if (message.type === "welcome") {
       joined = true;
+      combat = Object.hasOwn(message, "kills");
       options.onStatus("joined");
     }
     options.onMessage(message);
@@ -54,6 +56,13 @@ export function connectSquad(options: {
   return {
     publish(sample: Telemetry | null) {
       if (joined) send({ type: "telemetry", sample });
+    },
+    sighting(sighting: RoomSighting) {
+      const normalized = roomSighting(sighting);
+      if (joined && combat && normalized) send({ type: "sighting", sighting: normalized });
+    },
+    kills(kills: number | null) {
+      if (joined && combat) send({ type: "kills", kills });
     },
     close() {
       joined = false;

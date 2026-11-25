@@ -17,19 +17,47 @@ export type Member = {
   sample: Telemetry | null;
 };
 
+export type RoomSighting = {
+  player: string; aircraft: string; grid: string | null;
+  altitudeM: number | null; reporter: string | null;
+};
+
+// The game strips clan decorations when comparing kill identities.
+export function killIdentity(value: string): string | null {
+  const name = value.replace(/<color(?:=[^<>\r\n]{1,100})?>|<\/color>/gi, "").trim().replace(/^=[^=\s]{1,32}=\s+/, "").trim();
+  if (!name || name.length > 128 || /[<>\x00-\x1f\x7f]/.test(name)) return null;
+  return name.toLowerCase();
+}
+
 export type ClientMessage =
   | { type: "join"; name: string }
-  | { type: "telemetry"; sample: Telemetry | null };
+  | { type: "telemetry"; sample: Telemetry | null }
+  | { type: "sighting"; sighting: RoomSighting }
+  | { type: "kills"; kills: number | null };
 
 export type ServerMessage =
-  | { type: "welcome"; selfId: string; members: Member[] }
+  | { type: "welcome"; selfId: string; members: Member[]; kills?: number | null }
   | { type: "member"; member: Member }
-  | { type: "left"; id: string };
+  | { type: "left"; id: string }
+  | { type: "sighting"; sighting: RoomSighting }
+  | { type: "kills"; kills: number | null };
 
 export function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+// Keep only parsed combat fields. An unsafe optional caller must not discard
+// an otherwise usable sighting.
+export function roomSighting(value: unknown): RoomSighting | null {
+  const s = record(value);
+  if (!s) return null;
+  const bounded = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0 && v.length <= 128 && !/[<>\p{C}]/u.test(v);
+  if (!bounded(s.player) || !bounded(s.aircraft) ||
+      (s.grid !== null && (typeof s.grid !== "string" || !/^[A-Z]{1,2}\d{1,3}$/.test(s.grid))) ||
+      (s.altitudeM !== null && (typeof s.altitudeM !== "number" || !Number.isFinite(s.altitudeM) || Math.abs(s.altitudeM) > 100_000))) return null;
+  return { player: s.player.trim(), aircraft: s.aircraft.trim(), reporter: bounded(s.reporter) ? s.reporter.trim() : null, grid: s.grid as string | null, altitudeM: s.altitudeM as number | null };
 }
 
 export function reading(value: unknown): number | null {
@@ -70,6 +98,14 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   if (message?.type === "join") {
     const name = displayName(message.name);
     return name ? { type: "join", name } : null;
+  }
+  if (message?.type === "kills") {
+    return message.kills === null || (Number.isSafeInteger(message.kills) && (message.kills as number) >= 0 && (message.kills as number) <= 100_000)
+      ? { type: "kills", kills: message.kills as number | null } : null;
+  }
+  if (message?.type === "sighting") {
+    const sighting = roomSighting(message.sighting);
+    return sighting ? { type: "sighting", sighting } : null;
   }
   if (message?.type !== "telemetry") return null;
   if (message.sample === null) return { type: "telemetry", sample: null };

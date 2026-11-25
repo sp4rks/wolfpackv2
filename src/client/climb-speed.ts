@@ -1,39 +1,55 @@
 import { spectrum } from "./colour.ts";
 
 export type ClimbSpeeds = { normalKph: number | null; wepKph: number | null; estimatedKph?: number | null };
+type ActiveLookup = { controller?: AbortController; timer?: ReturnType<typeof setTimeout> };
 const valid = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 
-// Cache only successful reference lookups. Aircraft IDs are the only data sent.
-export function climbSpeedLookup(onChange: (value: ClimbSpeeds | null) => void) {
+// A bounded shared cache and one in-flight lookup per active aircraft ID.
+export function climbSpeedLookup(onChange: () => void) {
   const cache = new Map<string, { value: ClimbSpeeds; expires: number }>();
-  let current: string | null = null, controller: AbortController | undefined, timer: ReturnType<typeof setTimeout> | undefined;
-  let version = 0;
-  function set(aircraft: string | null): void {
-    if (aircraft === current) return;
-    current = aircraft; version++; controller?.abort(); clearTimeout(timer); onChange(null);
-    if (!aircraft) return;
-    const cached = cache.get(aircraft);
-    if (cached && cached.expires > Date.now()) { onChange(cached.value); return; }
-    const token = version;
-    const load = async (attempt: number): Promise<void> => {
-      controller = new AbortController();
+  const active = new Map<string, ActiveLookup>();
+  function load(id: string, state: ActiveLookup, attempt: number): void {
+    if (active.get(id) !== state) return;
+    state.controller = new AbortController();
+    void (async () => {
       try {
-        const response = await fetch(`/api/climb-speed?aircraft=${encodeURIComponent(aircraft)}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]), credentials: "omit" });
+        const response = await fetch(`/api/climb-speed?aircraft=${encodeURIComponent(id)}`, { signal: AbortSignal.any([state.controller!.signal, AbortSignal.timeout(5000)]), credentials: "omit" });
         if (!response.ok) throw new Error("Reference unavailable");
         const body = await response.json() as Record<string, unknown>;
         if (!body || !("normalKph" in body) || !("wepKph" in body)) throw new Error("Invalid reference");
-        if (version !== token) return;
+        if (active.get(id) !== state) return;
         const value = { normalKph: valid(body.normalKph), wepKph: valid(body.wepKph), estimatedKph: valid(body.estimatedKph) };
-        if (cache.size >= 100) cache.delete(cache.keys().next().value!);
-        cache.set(aircraft, { value, expires: Date.now() + (value.normalKph || value.wepKph || value.estimatedKph ? 3600000 : 300000) });
-        onChange(value);
+        if (!cache.has(id) && cache.size >= 100) {
+          const evict = [...cache.keys()].find(key => !active.has(key)) ?? cache.keys().next().value!;
+          cache.delete(evict);
+        }
+        const lifetime = value.normalKph || value.wepKph || value.estimatedKph ? 3600000 : 300000;
+        cache.set(id, { value, expires: Date.now() + lifetime });
+        state.timer = setTimeout(() => { cache.delete(id); onChange(); load(id, state, 0); }, lifetime);
+        onChange();
       } catch {
-        if (version === token && attempt < 2) timer = setTimeout(() => void load(attempt + 1), 2000 * (attempt + 1));
+        if (active.get(id) === state && attempt < 2) state.timer = setTimeout(() => load(id, state, attempt + 1), 2000 * (attempt + 1));
       }
-    };
-    void load(0);
+    })();
   }
-  return { set };
+  function setActive(ids: Iterable<string | null | undefined>): void {
+    const wanted = new Set([...ids].filter((id): id is string => !!id));
+    for (const [id, state] of active) if (!wanted.has(id)) {
+      active.delete(id); state.controller?.abort(); clearTimeout(state.timer);
+    }
+    for (const id of wanted) if (!active.has(id)) {
+      const state: ActiveLookup = {}; active.set(id, state);
+      const cached = cache.get(id);
+      if (cached && cached.expires > Date.now()) {
+        state.timer = setTimeout(() => { cache.delete(id); onChange(); load(id, state, 0); }, cached.expires - Date.now());
+      } else { cache.delete(id); load(id, state, 0); }
+    }
+  }
+  function get(id: string | null | undefined): ClimbSpeeds | null {
+    const entry = id && active.has(id) ? cache.get(id) : undefined;
+    return entry && entry.expires > Date.now() ? entry.value : null;
+  }
+  return { setActive, get };
 }
 
 export function iasComparison(ias: number | null, throttle: number | null, reference: ClimbSpeeds | null): { color: string; description: string } | null {

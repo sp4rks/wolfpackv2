@@ -27,7 +27,7 @@
             <label>Squad name (local label only)<input name="squad" required maxlength="32" autocomplete="off"></label>
             <label class="sharing-preference"><input type="checkbox" name="shareInstruments" aria-describedby="sharing-help"> <span>Share flight instruments with squad</span></label>
             <button type="submit" class="button-primary">Save squad preferences</button>
-            <small id="sharing-help">On by default. Only your flight instruments are shared. Map, chat, sightings and HUD kill observations stay local. Public stats lookup is separate in Settings.</small>
+            <small id="sharing-help">This toggle controls instruments only. A joined squad automatically shares parsed sightings (including altitude) and your observed kill count. Raw chat, HUD and map stay local. Reported names are not verified. Public stats lookup is separate in Settings.</small>
           </form>
         </div>
       </div>
@@ -51,7 +51,7 @@
                   <th>IAS</th>
                   <th>Altitude</th>
                   <th>Bearing</th>
-                  <th>Climb</th>
+                  <th>Climb rate</th>
                   <th>Throttle</th>
                 </tr>
               </thead>
@@ -200,7 +200,7 @@
               ></label
             >
             <label class="sharing-preference"><input type="checkbox" name="playerStats"> Look up public player stats
-              <small>On by default. New named target nicknames are sent via Wolf Pack to ThunderSkill; chat text, reporter, position, squad and telemetry are not sent. Turn off to stop lookups and clear results. These are apparent targets, not verified enemies.</small>
+              <small>On by default. New locally observed target nicknames are sent via Wolf Pack to ThunderSkill; squad-only sightings are not looked up. Chat text, reporter, position, squad and telemetry are not sent. Turn off to stop lookups and clear results. These are apparent targets, not verified enemies.</small>
             </label>
           </section>
           <section id="display" hidden>

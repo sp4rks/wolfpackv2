@@ -1,14 +1,10 @@
 import { record } from "../shared/protocol.ts";
+import { killIdentity } from "../shared/protocol.ts";
+export { killIdentity } from "../shared/protocol.ts";
 import { stripGameColors } from "./chat.ts";
 import { GAME_ORIGIN, POLL_MS } from "./telemetry.ts";
 
 // Clan decorations are not part of the nickname; platform prefixes/suffixes are.
-export function killIdentity(value: string): string | null {
-  const name = stripGameColors(value).trim().replace(/^=[^=\s]{1,32}=\s+/, "").trim();
-  if (!name || name.length > 128 || /[<>\x00-\x1f\x7f]/.test(name)) return null;
-  return name.toLowerCase();
-}
-
 // Datamine menu.csv: NET_UNIT_KILLED_FM/GM use active voice;
 // NET_PLAYER_KILLED_BY_* and NET_UNIT_KILLED_BY_PLAYER use passive.
 // Require a named attacker and vehicle in either form.
@@ -43,7 +39,8 @@ export function hudDamage(value: unknown): Damage[] {
 }
 
 export type HudUpdate = { available: boolean; counts: ReadonlyMap<string, number> };
-// Counts are local, bounded, and reset with each map watcher. Never send HUD data.
+// Counts are local, bounded, and reset with each map watcher. Only the own
+// identity's count is published; raw HUD entries never leave the browser.
 export function watchHud(onUpdate: (update: HudUpdate) => void): () => void {
   const stop = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;

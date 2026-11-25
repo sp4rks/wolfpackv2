@@ -115,7 +115,7 @@ test("responsive live layout, accessible icon controls and native map aspect", a
     });
     await page.goto(origin);
     await waitVisible(page, "#live-map", true);
-    expect(await page.locator(".squad thead th").allTextContents()).toEqual(["Player", "Aircraft", "Vy 100%", "Vy WEP", "IAS", "Altitude", "Bearing", "Climb", "Throttle"]);
+    expect(await page.locator(".squad thead th").allTextContents()).toEqual(["Player", "Aircraft", "Vy 100%", "Vy WEP", "IAS", "Altitude", "Bearing", "Climb rate", "Throttle"]);
     expect(await page.locator(".instrument-readings > div").count()).toBe(8);
     expect(await page.locator(".trace").count()).toBe(7);
     expect(await page.locator("#show-own, #mode-toggle, #share, .connection-bar, .sample-marker").count()).toBe(0);
@@ -301,7 +301,7 @@ test("automatic game polling, reconnect and squad publishing remain independent"
       : path === "/map_obj.json" ? req.frame().page() === pilot ? [{ type: "aircraft", icon: "Fighter", color: "#fa3200", x: .5, y: .5 }] : []
       : path === "/state" ? { valid: instrumentValid && req.frame().page() === pilot, "IAS, km/h": 321, "H, m": 1000 }
       : path === "/indicators" ? { valid: instrumentValid && req.frame().page() === pilot, army: "air", type: aircraft, compass: 90 }
-      : path === "/gamechat" ? chat
+      : path === "/gamechat" ? req.frame().page() === pilot ? chat : []
       : null;
     await route.fulfill({ status: body ? 200 : 404, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(body) });
   });
@@ -531,7 +531,7 @@ test("chat is local, incremental and recovers without inventing sightings", asyn
   await waitText(pilot, "#chat-list", "Old(P-40)");
   expect(await pilot.locator("#chat-list time").first().textContent()).toBe("—");
   expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
-  await waitText(pilot, "#sighting-empty", "Waiting for a new English named target callout");
+  await waitText(pilot, "#sighting-empty", "Waiting for local or squad sightings");
   expect(requests.find(r => r.path === "/gamechat")?.cursor).toBe("0");
   buffer.push({ id: 11, msg: "<img src=x onerror=alert(1)> hello", sender: "<Scout>", enemy: false, mode: "Team" },
     { id: 12, msg: "Engaging with Canniballistic(P-40F)! <color=@red>[D4, alt. 4 200 m]</color>", sender: "Scout", enemy: false, mode: "Team" },
@@ -579,8 +579,12 @@ test("chat is local, incremental and recovers without inventing sightings", asyn
   expect(await pilot.locator("#selected-reporter").textContent()).toContain("Wing");
   expect(await pilot.locator("#sighting-rows tr").count()).toBe(2);
   expect(await viewer.locator("#chat-list").textContent()).not.toContain("Canniballistic");
-  expect(sent.join(" ")).not.toContain("Canniballistic");
+  await waitText(viewer, "#sighting-rows", "Canniballistic");
+  expect(sent.join(" ")).not.toContain("Engaging with Canniballistic");
+  expect(sent.join(" ")).not.toContain("onerror=alert");
   expect(requests.some(r => r.page === viewer)).toBe(true);
+  // The rest exercises local resets independently of retained room reports.
+  await openSquad(pilot); await pilot.locator("#leave").click();
   failMap = true; failChat = true;
   await waitText(pilot, "#chat-list", "retrying");
   expect(await pilot.locator("#chat-list").textContent()).toContain("Previous messages are not current");
@@ -737,7 +741,7 @@ test("Vy references follow only the local aircraft, expire safely, and display w
   await page.route("**/api/climb-speed?**", async route => {
     const id = new URL(route.request().url()).searchParams.get("aircraft")!; calls.push(id);
     if (id === "first") { await new Promise<void>(resolve => { release = resolve; }); try { await route.fulfill({ json: { normalKph: 100, wepKph: 110 } }); } catch {} return; }
-    await route.fulfill({ json: { normalKph: 230, wepKph: 240 } });
+    await route.fulfill({ json: id === "third" ? { normalKph: 280, wepKph: 290 } : { normalKph: 230, wepKph: 240 } });
   });
   await page.route("http://127.0.0.1:8111/**", route => {
     const path = new URL(route.request().url()).pathname;
@@ -756,10 +760,16 @@ test("Vy references follow only the local aircraft, expire safely, and display w
   throttle = 80; heading = undefined;
   await page.waitForFunction(() => document.querySelector('[data-value="ias"]')?.getAttribute('aria-label')?.includes('100%'));
   await page.waitForFunction(() => !document.querySelector('#own-bearing-arrow svg'));
+  aircraft = "third";
+  await page.waitForFunction(() => document.querySelector('[data-value="ias"]')?.getAttribute('aria-label')?.includes('280 km/h'));
+  aircraft = "second";
+  await page.waitForFunction(() => document.querySelector('#squad-rows')?.textContent?.includes('230 km/h'));
+  // The cached own reference must be active in the same render, not next poll.
+  expect(await page.locator('[data-value="ias"]').getAttribute('aria-label')).toContain('230 km/h');
   await page.locator('#open-settings').click(); await page.locator('[data-section="display"]').click();
   await page.locator('[name="speed"]').selectOption('mph'); await page.locator('#settings-form button[type="submit"]').click();
   expect(await page.locator('#squad-rows').textContent()).toContain('143 mph');
-  expect(calls).toEqual(["first", "second"]);
+  expect(calls).toEqual(["first", "second", "third"]);
   aircraft = null; await page.waitForFunction(() => document.querySelector('[data-value="ias"]')?.getAttribute('aria-label') === null);
   await context.close();
 }, 30000);
@@ -840,7 +850,7 @@ test("public profile opt-out aborts pending results and does not backfill", asyn
   await context.close();
 }, 30000);
 
-test("squad HUD observations stay local, deduplicate and reset with map lifecycle", async () => {
+test("squad HUD observations relay own counts, deduplicate and reset with map lifecycle", async () => {
   const instance = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   const context = await instance.newContext();
   try {
@@ -892,9 +902,9 @@ test("squad HUD observations stay local, deduplicate and reset with map lifecycl
     await wing.goto((await pilot.locator("#invite").getAttribute("href"))!);
     await openSquad(wing); await wing.locator("#enter").click(); await waitText(pilot, "#squad-rows", "Wing");
     damage.push({ id: 13, msg: "Other (Plane) destroyed Target", enemy: false }, { id: 11, msg: "=TAG= Pilot@live (Plane) shot down Enemy (Plane)", enemy: false }, { id: 12, msg: "Victim (Plane) shot down by Wing (Plane)", enemy: false }, { id: 12, msg: "Wing (Plane) destroyed Duplicate", enemy: false }, { id: 14, msg: "Pilot@liveFake (Plane) destroyed Enemy", enemy: false }, { id: 15, msg: "Wing (Plane) destroyed Enemy", enemy: true }, { id: 16, msg: "Pilot@live (Plane) destroyed SenderSpoof", enemy: false, sender: "Impostor" });
-    await waitText(pilot, "#kill-count", "2 KILLS");
+    await waitText(pilot, "#kill-count", "1 KILL");
     expect(queries.some(q => q.includes("lastDmg=10") && q.includes("lastEvt=0"))).toBe(true);
-    expect(await wing.locator("#kill-count").innerText()).toBe("— KILLS");
+    await waitText(wing, "#kill-count", "1 KILL");
     expect(sent.join(" ")).not.toContain("shot down");
     await openSquad(wing); await wing.locator("#leave").click();
     await waitText(pilot, "#kill-count", "1 KILL");
@@ -915,3 +925,156 @@ test("squad HUD observations stay local, deduplicate and reset with map lifecycl
     await waitText(pilot, "#kill-count", "1 KILL");
   } finally { await context.close(); await instance.close(); }
 }, 60000);
+
+test("room relays enriched sightings, own HUD counts, live climb and aircraft references to a game-free viewer", async () => {
+  const instance = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  const context = await instance.newContext();
+  try {
+    const pilot = await context.newPage(), wing = await context.newPage(), viewer = await context.newPage(), late = await context.newPage();
+    for (const [page, name] of [[pilot, "Pilot"], [wing, "Wing"], [viewer, "Viewer"], [late, "Late"]] as const) {
+      await page.addInitScript(([player]) => localStorage.setItem("wolfpack-v2-preferences", JSON.stringify({ player, playerStats: player === "Viewer", climb: "ftmin" })), [name]);
+    }
+    const profileRequests: string[] = [];
+    await context.route("**/api/player-stats", route => { profileRequests.push(route.request().postData() ?? ""); return route.fulfill({ status: 500 }); });
+    const calls: string[] = [];
+    let releaseC!: () => void, notifyHeld!: () => void, notifyFinished!: () => void;
+    const heldC = new Promise<void>(resolve => { notifyHeld = resolve; });
+    const resumeC = new Promise<void>(resolve => { releaseC = resolve; });
+    const finishedC = new Promise<void>(resolve => { notifyFinished = resolve; });
+    await context.route("**/api/climb-speed?**", async route => {
+      const id = new URL(route.request().url()).searchParams.get("aircraft")!; calls.push(id);
+      if (id === "plane_c" && route.request().frame().page() === viewer) {
+        notifyHeld(); await resumeC;
+        try { await route.fulfill({ json: { normalKph: 400, wepKph: 410 } }); } catch { /* cancelled after aircraft switch */ }
+        finally { notifyFinished(); }
+        return;
+      }
+      if (id === "d_521") return route.fallback();
+      return route.fulfill({ json: id === "plane_a" ? { normalKph: 200, wepKph: 210, estimatedKph: 999 } : { normalKph: 300, wepKph: 310 } });
+    });
+    let pilotAircraft = "plane_a", wingClimb = -2;
+    const chats = new Map<Page, Array<{ id: number; msg: string; sender: string; enemy: boolean }>>([[pilot, []], [wing, []], [viewer, []], [late, []]]);
+    chats.get(pilot)!.push({ id: 1, msg: "Attack OldTarget(Plane)!", sender: "Pilot", enemy: false });
+    const pilotDamage = [{ id: 1, msg: "Pilot (Plane) destroyed Buffered", enemy: false }];
+    const wingDamage = [{ id: 10, msg: "Wing (Plane) destroyed Buffered", enemy: false }];
+    const sent: string[] = [];
+    for (const page of [pilot, wing, viewer]) page.on("websocket", ws => ws.on("framesent", frame => sent.push(String(frame.payload))));
+    let notifyIncomplete: (() => void) | undefined;
+    viewer.on("websocket", ws => ws.on("framereceived", frame => {
+      const message = JSON.parse(String(frame.payload));
+      if (message.type === "sighting" && message.sighting.player === "Target" && message.sighting.altitudeM === null) notifyIncomplete?.();
+    }));
+    await context.route("http://127.0.0.1:8111/**", async route => {
+      const req = route.request(), page = req.frame().page(), path = new URL(req.url()).pathname, offline = page === viewer || page === late;
+      if (path === "/map.img") return void await route.fulfill({ contentType: "image/png", body: image });
+      const body = path === "/gamechat" ? chats.get(page) : path === "/map_info.json" ? offline ? { valid: false } : { map_generation: 1 }
+        : path === "/map_obj.json" ? [] : path === "/hudmsg" ? { events: [], damage: page === pilot ? pilotDamage : wingDamage }
+        : path === "/state" ? { valid: !offline, "IAS, km/h": 250, "Vy, m/s": page === pilot ? 3 : wingClimb }
+        : path === "/indicators" ? { valid: !offline, type: page === pilot ? pilotAircraft : "plane_b" } : { valid: false };
+      await route.fulfill({ json: body, headers: { "Access-Control-Allow-Origin": "*" } });
+    });
+    for (const page of [pilot, wing, viewer]) await page.goto(origin);
+    await waitText(pilot, "#kill-count", "0 KILLS"); await waitText(wing, "#kill-count", "0 KILLS");
+    await waitText(pilot, "#chat-list", "OldTarget");
+    await openSquad(pilot); await pilot.locator("#enter").click(); await waitText(pilot, "#squad-status", "Connected.");
+    const invite = (await pilot.locator("#invite").getAttribute("href"))!;
+    for (const page of [wing, viewer]) { await page.goto(invite); await openSquad(page); await page.locator("#enter").click(); await waitText(page, "#squad-status", "Connected."); }
+    expect(await viewer.locator("#sighting-rows tr").count()).toBe(0);
+    await waitText(viewer, "#squad-rows", "plane_a"); await waitText(viewer, "#squad-rows", "plane_b");
+    const pilotRow = viewer.locator("#squad-rows tr").filter({ hasText: "Pilot" });
+    const wingRow = viewer.locator("#squad-rows tr").filter({ hasText: "Wing" });
+    await pilotRow.getByText("200 km/h", { exact: true }).waitFor(); await wingRow.getByText("300 km/h", { exact: true }).waitFor();
+    expect(await pilotRow.locator('td[data-label="Vy estimate"]').count()).toBe(0);
+    expect(await pilotRow.locator('[data-label="Climb rate"]').textContent()).toContain("+591 ft/min");
+    expect(await wingRow.locator('[data-label="Climb rate"]').textContent()).toContain("-394 ft/min");
+    wingClimb = 4; await wingRow.getByText("+787 ft/min", { exact: true }).waitFor();
+    pilotAircraft = "plane_c"; await pilotRow.getByText("plane_c", { exact: true }).waitFor();
+    await heldC;
+    expect(await pilotRow.textContent()).not.toContain("200 km/h");
+    pilotAircraft = "plane_d"; await pilotRow.getByText("300 km/h", { exact: true }).waitFor();
+    releaseC(); await finishedC;
+    expect(await pilotRow.textContent()).not.toContain("200 km/h");
+    expect(await pilotRow.textContent()).not.toContain("400 km/h");
+    pilotAircraft = "d_521";
+    const remoteEstimate = pilotRow.locator('td[data-label="Vy estimate"]');
+    await remoteEstimate.getByText("217 km/h (est.)", { exact: true }).waitFor();
+    expect(await remoteEstimate.getAttribute("colspan")).toBe("2");
+    expect(await remoteEstimate.getAttribute("title")).toContain("throttle setting unspecified");
+    expect(await pilotRow.locator('td[data-label="Vy 100%"], td[data-label="Vy WEP"]').count()).toBe(0);
+    pilotAircraft = "plane_d";
+    await pilotRow.getByText("300 km/h", { exact: true }).waitFor();
+    await pilotRow.getByText("310 km/h", { exact: true }).waitFor();
+    chats.get(pilot)!.push({ id: 2, msg: "Attack Target(Plane)! [D4]", sender: "Pilot", enemy: false });
+    await waitText(viewer, "#sighting-rows", "Target");
+    chats.get(wing)!.push({ id: 1, msg: "Attack Target(Plane)! [D4, alt. 4000 m]", sender: "Pilot", enemy: false });
+    for (const page of [pilot, wing, viewer]) await waitText(page, "#sighting-rows", "4,000");
+    const incompleteEcho = new Promise<void>(resolve => { notifyIncomplete = resolve; });
+    chats.get(pilot)!.push({ id: 3, msg: "Attack Target(Plane)! [D4]", sender: "Pilot", enemy: false });
+    await pilot.waitForFunction(() => (document.querySelector("#chat-list")?.textContent?.match(/Attack Target\(Plane\)!/g) ?? []).length === 2);
+    await incompleteEcho; notifyIncomplete = undefined;
+    for (const page of [pilot, wing, viewer]) { expect(await page.locator("#sighting-rows tr").count()).toBe(1); expect(await page.locator("#sighting-rows").textContent()).toContain("4,000"); }
+    pilotDamage.push({ id: 2, msg: "Pilot (Plane) destroyed VictimOne", enemy: false }, { id: 3, msg: "Wing (Plane) destroyed VictimTwo", enemy: false });
+    wingDamage.push({ id: 11, msg: "Wing (Plane) destroyed VictimTwo", enemy: false }, { id: 12, msg: "Pilot (Plane) destroyed VictimOne", enemy: false });
+    for (const page of [pilot, wing, viewer]) await waitText(page, "#kill-count", "2 KILLS");
+    await late.goto(invite); await openSquad(late); await late.locator("#enter").click();
+    await waitText(late, "#kill-count", "2 KILLS");
+    expect(await late.locator("#sighting-rows tr").count()).toBe(0);
+    expect(profileRequests).toEqual([]);
+    expect(sent.join(" ")).not.toContain("VictimOne"); expect(sent.join(" ")).not.toContain("Attack Target");
+    expect(calls).toContain("plane_a"); expect(calls).toContain("plane_b"); expect(calls).toContain("plane_c"); expect(calls).toContain("plane_d"); expect(calls).toContain("d_521");
+    await openSquad(pilot); await pilot.locator('[name="shareInstruments"]').uncheck(); await pilot.locator('#squad-form button[type="submit"]').click();
+    await pilotRow.locator('[data-label="Aircraft"]').getByText("—", { exact: true }).waitFor();
+    expect(await pilotRow.textContent()).not.toContain("300 km/h");
+    expect(await pilotRow.locator('[data-label="Climb rate"]').textContent()).toContain("—");
+    // Leaving removes an unexpired room-only sighting; rejoining does not replay it.
+    expect(await viewer.locator("#sighting-rows tr").count()).toBe(1);
+    await openSquad(viewer); await viewer.locator("#leave").click();
+    expect(await viewer.locator("#sighting-rows tr").count()).toBe(0);
+    await openSquad(viewer); await viewer.locator("#enter").click(); await waitText(viewer, "#squad-status", "Connected.");
+    expect(await viewer.locator("#sighting-rows tr").count()).toBe(0);
+    chats.get(pilot)!.push({ id: 4, msg: "Attack Target(Plane)! [D4]", sender: "Pilot", enemy: false });
+    await waitText(viewer, "#sighting-rows", "Target");
+    await viewer.evaluate(() => { const now = Date.now.bind(Date); Date.now = () => now() + 121_000; });
+    await viewer.waitForFunction(() => document.querySelectorAll("#sighting-rows tr").length === 0);
+    await openSquad(wing); await wing.locator("#leave").click(); await waitText(viewer, "#kill-count", "1 KILL");
+  } finally { await context.close(); await instance.close(); }
+}, 60000);
+
+test("prejoin and retry-backfill sightings remain local while later live calls relay", async () => {
+  const instance = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  const context = await instance.newContext();
+  try {
+    const pilot = await context.newPage(), viewer = await context.newPage();
+    for (const [page, player] of [[pilot, "Pilot"], [viewer, "Viewer"]] as const) {
+      await page.addInitScript(name => localStorage.setItem("wolfpack-v2-preferences", JSON.stringify({ player: name, playerStats: false })), player);
+    }
+    await referenceFixtures(context);
+    let fail = false;
+    const messages = [{ id: 1, msg: "baseline", sender: "Scout", enemy: false }];
+    const sent: string[] = [];
+    pilot.on("websocket", ws => ws.on("framesent", frame => sent.push(String(frame.payload))));
+    await context.route("http://127.0.0.1:8111/**", async route => {
+      const req = route.request(), url = new URL(req.url());
+      if (url.pathname === "/gamechat" && req.frame().page() === pilot) {
+        if (fail) return void await route.fulfill({ status: 503, headers: { "Access-Control-Allow-Origin": "*" } });
+        return void await route.fulfill({ json: messages.filter(m => m.id >= Number(url.searchParams.get("lastId"))), headers: { "Access-Control-Allow-Origin": "*" } });
+      }
+      await route.fulfill({ json: url.pathname === "/gamechat" ? [] : { valid: false }, headers: { "Access-Control-Allow-Origin": "*" } });
+    });
+    await pilot.goto(origin); await viewer.goto(origin); await waitText(pilot, "#chat-list", "baseline");
+    messages.push({ id: 2, msg: "Attack PreJoin(Plane)! [D4]", sender: "Scout", enemy: false });
+    await waitText(pilot, "#sighting-rows", "PreJoin");
+    await openSquad(pilot); await pilot.locator("#enter").click(); await waitText(pilot, "#squad-status", "Connected.");
+    await viewer.goto((await pilot.locator("#invite").getAttribute("href"))!);
+    await openSquad(viewer); await viewer.locator("#enter").click(); await waitText(viewer, "#squad-status", "Connected.");
+    fail = true; await waitText(pilot, "#chat-list", "retrying");
+    messages.push({ id: 3, msg: "Attack Backfill(Plane)! [D4, alt. 3000 m]", sender: "Scout", enemy: false });
+    fail = false; await waitText(pilot, "#sighting-rows", "Backfill");
+    messages.push({ id: 4, msg: "Attack Live(Plane)! [D4]", sender: "Scout", enemy: false });
+    await waitText(viewer, "#sighting-rows", "Live");
+    expect(await viewer.locator("#sighting-rows").textContent()).not.toContain("PreJoin");
+    expect(await viewer.locator("#sighting-rows").textContent()).not.toContain("Backfill");
+    expect(sent.join(" ")).not.toContain("Backfill");
+    expect(sent.join(" ")).not.toContain("PreJoin");
+  } finally { await context.close(); await instance.close(); }
+}, 30000);

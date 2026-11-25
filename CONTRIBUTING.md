@@ -110,20 +110,32 @@ The Spotter’s Index layout follows the readability snapshot from
 - Chat stays in browser memory. The game provides no message timestamps:
   buffered messages are undated and do not create sightings. New supported
   English radio calls create local sightings stamped with their arrival time.
+  Joined clients relay only parsed player, aircraft, grid, altitude and
+  game-reported caller (not authenticated). No initial history, already-observed
+  prejoin sightings, or retry recovery backfill is relayed. Recovery backfill
+  may still appear locally, because its freshness cannot be established.
+  The room broadcasts without storing history; receivers keep bounded
+  reports for 120 seconds. Compatible near-simultaneous calls retain their
+  richer altitude for up to eight seconds, not across incompatible reports.
   Show only the reported grid and altitude, not an inferred position. During
-  retries, existing chat and sightings are historical. Sightings clear on a
-  known map change, invalid map, chat ID restart, or reconnect.
+  retries, existing chat and sightings are historical. A known map change or
+  invalid map clears local and room reports. A chat ID restart clears local
+  reports but leaves room reports until expiry, leave, or a known map reset.
+  Reconnect clears local reports and switches the room socket.
 
 - The Squad kill count is a bounded, in-memory observation of the HUD `damage`
   lane, never sender chat or a scoreboard. Nonempty sender records are ignored. It counts supported English active and
   passive credited kills with a named attacker and vehicle, matched exactly to
-  current squad names after game colour and `=TAG= ` decoration removal. Game
+  the joined own name after game colour and `=TAG= ` decoration removal. Game
   platform suffixes remain part of the name. Initial map and reconnect batches
   are baselined, not counted; a retry rebaselines and can miss events. Map
   changes, metadata interruptions (including invalid, unreachable, or stale
   metadata), and reconnect clear the summary. A missing or
-  malformed feed is unavailable, not zero. HUD content and summaries are never
-  stored or sent to the Worker or squad. English strings are informed by War
+  malformed feed is unavailable, not zero. Only the own absolute count or null
+  is sent to the room, including counts already observed on the current map
+  before joining; raw HUD content is never sent. The room stores counts in
+  socket attachments, sums available members and deduplicates matching names by
+  maximum. Disconnect and null remove contributions. English strings are informed by War
   Thunder Datamine `menu.csv` NET_UNIT_KILLED_FM/GM and NET_*_KILLED_BY_*
   localization; the [HUD endpoint documentation](https://github.com/lucasvmx/WarThunder-localhost-documentation/blob/master/Hudmsg/Hudmsg.md)
   and [Tailgunner telemetry](https://github.com/TheDR-lul/Tailgunner/blob/main/src-tauri/src/wt_telemetry.rs)
@@ -142,6 +154,9 @@ The Spotter’s Index layout follows the readability snapshot from
   or invalid readings are not zero, and a valid game response is not proof of a
   live battle. The UI waits for a fresh update instead of treating an untimed
   welcome snapshot as current.
+- Sightings and own kill counts are shared automatically while joined, regardless
+  of the instrument toggle. Older servers omit the welcome `kills` capability;
+  clients do not send combat messages to them.
 - The server assigns connection identities. Invites are random 128-bit bearer
   secrets: anyone with the link can join and use any display name. The key stays
   in the URL fragment, travels in the WebSocket subprotocol header, and is
@@ -160,7 +175,9 @@ The Spotter’s Index layout follows the readability snapshot from
 ### Aircraft references and public player stats
 
 - Vy is a target **indicated airspeed** in km/h, not a vertical speed. The browser
-  requests a reference for its own aircraft ID only. The Worker reads the
+  requests references for its own aircraft and fresh shared aircraft IDs; a
+  remote row clears with its sample. Live signed climb rate is a separate
+  instrument, shared under the existing instrument setting. The Worker reads the
   `mec_aircraft` table in the existing `wolfpack-reference` D1 database and
   validates all four mapped row identifiers. No production writes or schema
   changes are needed. The mapping is exact, checked against flight-model IDs
@@ -191,11 +208,12 @@ The Spotter’s Index layout follows the readability snapshot from
   the deviation.
   When only an estimate is available, the same estimated sea-level target is
   used regardless of throttle, without attributing it to a throttle setting.
-- **Look up public player stats** defaults on. For eligible new named calls,
+- **Look up public player stats** defaults on. For eligible new locally observed named calls,
   Wolf Pack forwards just the normalized target nickname to ThunderSkill, not
   the chat, reporter, position, squad, or flight instruments. These are apparent
   targets, not confirmed enemies. Turning lookups off stops requests and clears
-  results; turning them back on does not look up old sightings. The provider
+  results; turning them back on does not look up old sightings. Remote-only room
+  sightings never trigger automatic lookups. The provider
   sees the requested nickname and normal connection metadata. The same-origin
   check is not authentication, and the rate limit is per Cloudflare location,
   not global.

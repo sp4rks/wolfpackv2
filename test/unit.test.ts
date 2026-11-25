@@ -1,12 +1,59 @@
 import { describe, expect, test } from "bun:test";
 import { normalizeTelemetry, readTelemetry } from "../src/client/telemetry.ts";
-import { createRoomKey, isRoomKey, parseClientMessage } from "../src/shared/protocol.ts";
-import { inviteKey, inviteUrl } from "../src/client/squad.ts";
+import { createRoomKey, isRoomKey, parseClientMessage, roomSighting } from "../src/shared/protocol.ts";
+import { connectSquad, inviteKey, inviteUrl } from "../src/client/squad.ts";
 import { addHistory, altitude, bearing, climb, climbAngle, defaults, emptyHistories, preferences, speed, temperature } from "../src/client/derived.ts";
-import { normalizeChat, parseSighting, stripGameColors } from "../src/client/chat.ts";
+import { mergeSighting, normalizeChat, parseSighting, stripGameColors } from "../src/client/chat.ts";
 import { CONTACT_LIMIT, mapContacts, mapGeneration, watchMap } from "../src/client/map.ts";
 
 const sampleOwn = { aircraft: "test", iasKph: 286, tasKph: 304, altitudeM: 2450, headingDeg: 74, climbMps: 4.2, throttlePct: 87, waterTempC: 91, oilTempC: 78, propPitch: null, manifoldPressure: null };
+
+test("combat payloads are bounded and stripped; height enrichment cannot persist or cross incompatible calls", () => {
+  const report = { player: "Enemy", aircraft: "Plane", grid: "D4", altitudeM: 4000, reporter: "Pilot" };
+  const parsed = parseClientMessage(JSON.stringify({ type: "sighting", sighting: { ...report, raw: "secret", time: 99 } }));
+  expect(parsed).toEqual({ type: "sighting", sighting: report });
+  expect(roomSighting({ ...report, reporter: "<unsafe>", raw: "secret" })).toEqual({ ...report, reporter: null });
+  expect(parseClientMessage(JSON.stringify({ type: "sighting", sighting: { ...report, reporter: "<unsafe>" } }))).toEqual({ type: "sighting", sighting: { ...report, reporter: null } });
+  expect(parseClientMessage(JSON.stringify({ type: "sighting", sighting: { ...report, grid: "bad[]" } }))).toBeNull();
+  expect(parseClientMessage(JSON.stringify({ type: "sighting", sighting: { ...report, player: "<script>" } }))).toBeNull();
+  for (const kills of [-1, 1.5, 100001, "1"]) expect(parseClientMessage(JSON.stringify({ type: "kills", kills }))).toBeNull();
+  expect(parseClientMessage('{"type":"kills","kills":null}')).toEqual({ type: "kills", kills: null });
+  const rich = { ...report, key: "enemy", receivedAt: 1000 };
+  const incomplete = { ...rich, altitudeM: null, receivedAt: 2000 };
+  expect(mergeSighting(rich, incomplete).altitudeM).toBe(4000);
+  expect(mergeSighting(incomplete, { ...rich, receivedAt: 2000 }).altitudeM).toBe(4000);
+  expect(mergeSighting(mergeSighting(rich, incomplete), { ...incomplete, receivedAt: 10000 }).altitudeM).toBeNull();
+  expect(mergeSighting(rich, { ...incomplete, grid: "E4" }).altitudeM).toBeNull();
+  expect(mergeSighting(rich, { ...incomplete, reporter: "Other" }).altitudeM).toBeNull();
+  expect(mergeSighting({ ...rich, reporter: "=TAG= <color=red>Pilot</color>" }, incomplete).altitudeM).toBe(4000);
+});
+
+test("combat publication is gated by the nullable welcome capability", () => {
+  const oldSocket = globalThis.WebSocket, oldLocation = globalThis.location;
+  let last!: FakeSocket;
+  class FakeSocket extends EventTarget {
+    static OPEN = 1;
+    readyState = 1; bufferedAmount = 0; sent: unknown[] = [];
+    constructor() { super(); last = this; }
+    send(value: string) { this.sent.push(JSON.parse(value)); }
+    close() {}
+    message(value: unknown) { this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(value) })); }
+  }
+  try {
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    Object.defineProperty(globalThis, "location", { configurable: true, value: { origin: "http://localhost" } });
+    const connect = () => connectSquad({ roomKey: "a".repeat(32), name: "Pilot", onStatus() {}, onMessage() {} });
+    const old = connect(); last.message({ type: "welcome", selfId: "1", members: [] });
+    old.kills(1); old.sighting({ player: "Target", aircraft: "Plane", grid: null, altitudeM: null, reporter: null });
+    expect(last.sent).toEqual([]);
+    const current = connect(); last.message({ type: "welcome", selfId: "1", members: [], kills: null });
+    current.kills(0); current.sighting({ player: "Target", aircraft: "Plane", grid: null, altitudeM: null, reporter: null });
+    expect(last.sent).toEqual([{ type: "kills", kills: 0 }, { type: "sighting", sighting: { player: "Target", aircraft: "Plane", grid: null, altitudeM: null, reporter: null } }]);
+  } finally {
+    globalThis.WebSocket = oldSocket;
+    Object.defineProperty(globalThis, "location", { configurable: true, value: oldLocation });
+  }
+});
 
 describe("dashboard readings and settings", () => {
   test("sharing defaults on and survives validated saved preferences", () => {
@@ -184,6 +231,7 @@ describe("game chat reports", () => {
       expect(parseSighting(message(`${prefix} =V3PER= *BlazingTiger552(F4U)!`))?.player).toBe("=V3PER= *BlazingTiger552");
     }
     expect(parseSighting(message("Engaging with Canniballistic(P-40F)! [D4, alt. 4200 m]"))).toMatchObject({ grid: "D4", altitudeM: 4200, reporter: "Scout" });
+    expect(parseSighting(message("Attack Ace(Plane)!", { sender: "<color=red>Scout</color>" }))?.reporter).toBe("Scout");
     expect(parseSighting(message("Someone, attack Abscon (P-40F)!"))).toMatchObject({ player: "Abscon", grid: null, altitudeM: null });
     expect(parseSighting(message("Attack Ace(Plane (Mk II))! <color=@red>[B4, alt. 2,100 ft]</color>"))).toMatchObject({ aircraft: "Plane (Mk II)", grid: "B4", altitudeM: 640.08 });
     expect(parseSighting(message("Attack Ace(Plane)! [B4, alt. +2 100 m]"))?.altitudeM).toBe(2100);

@@ -1,9 +1,22 @@
-import { record } from "../shared/protocol.ts";
+import { killIdentity, record } from "../shared/protocol.ts";
 import { GAME_ORIGIN, POLL_MS } from "./telemetry.ts";
 
 export type ChatMessage = { id: number; msg: string; sender: string | null; channel: string | null; enemy: boolean; receivedAt: number | null };
-export type Sighting = { key: string; player: string; aircraft: string; reporter: string | null; grid: string | null; altitudeM: number | null; receivedAt: number };
+export type Sighting = { key: string; player: string; aircraft: string; reporter: string | null; grid: string | null; altitudeM: number | null; receivedAt: number; altitudeAt?: number };
 const MAX_MESSAGES = 200;
+
+// Preserve height only for the same closely timed call, never indefinitely
+// through a chain of incomplete updates.
+export function mergeSighting(previous: Sighting | undefined, next: Sighting): Sighting {
+  if (!previous || next.altitudeM !== null || previous.altitudeM === null) return next;
+  const norm = (s: string) => s.trim().toLocaleLowerCase();
+  const altitudeAt = previous.altitudeAt ?? previous.receivedAt;
+  const compatible = norm(previous.aircraft) === norm(next.aircraft) &&
+    (!previous.grid || !next.grid || previous.grid === next.grid) &&
+    (!previous.reporter || !next.reporter || (killIdentity(previous.reporter) !== null && killIdentity(previous.reporter) === killIdentity(next.reporter)));
+  return compatible && Math.abs(next.receivedAt - altitudeAt) <= 8000
+    ? { ...next, altitudeM: previous.altitudeM, altitudeAt } : next;
+}
 
 // Reject malformed entries instead of allowing unbounded or non-text game data into the UI.
 export function normalizeChat(value: unknown): Omit<ChatMessage, "receivedAt">[] {
@@ -60,10 +73,11 @@ export function parseSighting(message: ChatMessage): Sighting | null {
   if (open < 1) return null;
   const player = target.slice(0, open).trim(), aircraft = target.slice(open + 1, -1).trim();
   if (!player || player.toLowerCase() === "my target" || !aircraft || player.length > 128 || aircraft.length > 128 || /[<>]/.test(player + aircraft)) return null;
-  return { key: player.toLocaleLowerCase(), player, aircraft, reporter: message.sender, grid, altitudeM, receivedAt: message.receivedAt };
+  const reporter = message.sender ? stripGameColors(message.sender).trim() || null : null;
+  return { key: player.toLocaleLowerCase(), player, aircraft, reporter, grid, altitudeM, receivedAt: message.receivedAt };
 }
 
-export type ChatUpdate = { status: "live" | "retrying"; messages: ChatMessage[]; fresh: ChatMessage[]; reset: boolean };
+export type ChatUpdate = { status: "live" | "retrying"; messages: ChatMessage[]; fresh: ChatMessage[]; reset: boolean; relayFresh: boolean };
 
 // One request at a time. Recovery re-bootstraps to detect an ID restart.
 export function watchChat(onUpdate: (update: ChatUpdate) => void): () => void {
@@ -93,11 +107,11 @@ export function watchChat(onUpdate: (update: ChatUpdate) => void): () => void {
       cursor = Math.max(cursor, max);
       messages = messages.slice(-MAX_MESSAGES);
       initialized = true; recovering = false; first = false;
-      onUpdate({ status: "live", messages: [...messages].reverse(), fresh, reset });
+      onUpdate({ status: "live", messages: [...messages].reverse(), fresh, reset, relayFresh: !baseline });
     } catch {
       if (stop.signal.aborted) return;
       first = false; recovering = initialized;
-      onUpdate({ status: "retrying", messages: [...messages].reverse(), fresh: [], reset: false });
+      onUpdate({ status: "retrying", messages: [...messages].reverse(), fresh: [], reset: false, relayFresh: false });
     }
     if (!stop.signal.aborted) timer = setTimeout(poll, POLL_MS);
   };
