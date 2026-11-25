@@ -26,6 +26,16 @@ test("reference API uses isolated D1, exact mapped rows and safe failure respons
   expect(response.headers.get("Cache-Control")).toContain("max-age=3600");
   response = await get("bf-109g-6");
   expect(await response.json()).toEqual({ normalKph: 240, wepKph: null });
+  response = await get("spitfire_mk1");
+  expect(await response.json()).toEqual({ normalKph: 200, wepKph: 210 });
+  expect(response.headers.get("Cache-Control")).toContain("max-age=3600");
+  expect(await (await get("d_520_france")).json()).toEqual({ normalKph: 220, wepKph: 230 });
+  response = await get("d_521");
+  expect(await response.json()).toEqual({ normalKph: null, wepKph: null, estimatedKph: 217 });
+  expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
+  response = await get("d_521_extra");
+  expect(await response.json()).toEqual({ normalKph: null, wepKph: null });
+  expect(response.headers.get("Cache-Control")).toContain("max-age=300");
   response = await get("p-51c-10-nt");
   expect(await response.json()).toEqual({ normalKph: null, wepKph: null });
   expect(response.headers.get("Cache-Control")).toContain("max-age=300");
@@ -39,6 +49,9 @@ test("reference API uses isolated D1, exact mapped rows and safe failure respons
   response = await get("p-51_mk1a_usaaf");
   expect(response.status).toBe(503);
   expect(response.headers.get("Cache-Control")).toBe("no-store");
+  response = await get("d_521");
+  expect(await response.json()).toEqual({ normalKph: null, wepKph: null, estimatedKph: 217 });
+  expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
   // Unknown IDs do not query D1 even when the database is unavailable.
   expect((await get("unlisted-plane")).status).toBe(200);
 }, 30000);

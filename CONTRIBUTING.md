@@ -168,12 +168,19 @@ The Spotter’s Index layout follows the readability snapshot from
   `79341db6c04e114bce622659fd37dfbcae310559`. An unverified duplicate LaGG row is
   omitted. See the [MEC workbook](https://docs.google.com/spreadsheets/d/1rmN88QSthSclf7kxd6-miXjPFZEGmBQ5xMumqixKC6s/edit#gid=1236982432),
   also recorded in `mec_workbook.source_url`.
+- D.521 has no workbook row and is not aliased to D.520. Its single estimated
+  sea-level Vy is derived from the [D.521 flight-model performance data](https://github.com/gszabi99/War-Thunder-Datamine/blob/79341db6c04e114bce622659fd37dfbcae310559/aces.vromfs.bin_u/gamedata/flightmodels/performance/d_521.blkx):
+  `altSpecs.altSpecs0.optSpeed` is 60.3268 m/s, rounded to 217 km/h.
+  The source does not specify a throttle setting; this is an estimate, not a
+  separate 100% or WEP reference, and may not apply at altitude.
 - Squad IAS colours compare each reading with **the viewer’s aircraft target**,
   using each row’s throttle to choose between the normal and WEP references.
   Above 100% throttle, use WEP when available and the 100% target otherwise;
   at or below 100%, use the 100% target. They do not show each squadmate’s own
   optimum. Within ±2 km/h is on target; colour saturates at ±15%, and text gives
   the deviation.
+  When only an estimate is available, the same estimated sea-level target is
+  used regardless of throttle, without attributing it to a throttle setting.
 - **Look up public player stats** defaults on. For eligible new named calls,
   Wolf Pack forwards just the normalized target nickname to ThunderSkill, not
   the chat, reporter, position, squad, or flight instruments. These are apparent

@@ -764,6 +764,53 @@ test("Vy references follow only the local aircraft, expire safely, and display w
   await context.close();
 }, 30000);
 
+test("D.521 estimated Vy uses the local Worker and remains neutral across settings", async () => {
+  browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    let aircraft = "d_521", throttle = 100, estimateRequests = 0;
+    await page.route("**/api/climb-speed?**", route => {
+      const id = new URL(route.request().url()).searchParams.get("aircraft");
+      if (id === "d_521") { estimateRequests++; return route.fallback(); }
+      return route.fulfill({ json: { normalKph: null, wepKph: null } });
+    });
+    await page.route("http://127.0.0.1:8111/**", route => {
+      const path = new URL(route.request().url()).pathname;
+      const data = path === "/state" ? { valid: true, "IAS, km/h": 220, "throttle 1, %": throttle } : path === "/indicators" ? { valid: true, type: aircraft } : path === "/gamechat" ? [] : { valid: false };
+      return route.fulfill({ json: data, headers: { "Access-Control-Allow-Origin": "*" } });
+    });
+    await page.goto(origin);
+    await waitText(page, "#squad-rows", "217 km/h (est.)");
+    const cell = page.locator('#squad-rows td[data-label="Vy estimate"]');
+    expect(await cell.getAttribute("colspan")).toBe("2");
+    expect(await cell.getAttribute("title")).toContain("throttle setting unspecified");
+    expect(await page.locator('#squad-rows td[data-label="Aircraft"]').innerText()).toBe("d_521");
+    expect(await page.locator('#squad-rows td[data-label="Vy 100%"], #squad-rows td[data-label="Vy WEP"]').count()).toBe(0);
+    for (const setting of [100, 110]) {
+      throttle = setting;
+      await waitText(page, '#squad-rows td[data-label="Throttle"]', `${setting}%`);
+      const description = await page.locator('[data-value="ias"]').getAttribute("aria-label");
+      expect(description).toContain("estimated sea-level Vy");
+      expect(description).not.toMatch(/100%|WEP/);
+    }
+    await page.setViewportSize({ width: 320, height: 640 });
+    expect(await cell.evaluate(el => getComputedStyle(el, "::before").content)).toBe('"Vy estimate"');
+    expect(await cell.evaluate(el => el.getBoundingClientRect().right <= document.documentElement.clientWidth)).toBe(true);
+    await page.locator('#open-settings').click(); await page.locator('[data-section="display"]').click();
+    await page.locator('[name="speed"]').selectOption('mph'); await page.locator('#settings-form button[type="submit"]').click();
+    expect(await cell.innerText()).toBe("135 mph (est.)");
+    // More than the negative-cache TTL, but within the positive-cache TTL.
+    await page.evaluate(() => { const now = Date.now.bind(Date); Date.now = () => now() + 301_000; });
+    aircraft = "other"; await waitText(page, '#squad-rows td[data-label="Aircraft"]', "other");
+    aircraft = "d_521"; await waitText(page, "#squad-rows", "135 mph (est.)");
+    expect(estimateRequests).toBe(1);
+    await page.locator('#open-settings').click(); await page.locator('[data-section="display"]').click();
+    await page.locator('[name="speed"]').selectOption('km/h'); await page.locator('#settings-form button[type="submit"]').click();
+    expect(await cell.innerText()).toBe("217 km/h (est.)");
+  } finally { await context.close(); }
+}, 30000);
+
 test("public profile opt-out aborts pending results and does not backfill", async () => {
   browser ??= await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
   const context = await browser.newContext(); await referenceFixtures(context); const page = await context.newPage();

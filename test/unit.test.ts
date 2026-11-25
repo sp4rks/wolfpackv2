@@ -215,6 +215,14 @@ test("Vy comparison and compass fallback are truthful", async () => {
   expect(iasComparison(240, 101, { normalKph: 230, wepKph: null })?.description).toContain("WEP reference unavailable");
   expect(iasComparison(null, 100, { normalKph: 230, wepKph: 240 })).toBeNull();
   expect(iasComparison(230, 100, { normalKph: null, wepKph: 240 })).toBeNull();
+  const estimate = { normalKph: null, wepKph: null, estimatedKph: 217 };
+  for (const throttle of [100, 110]) {
+    const comparison = iasComparison(220, throttle, estimate);
+    expect(comparison?.description).toBe("3.0 km/h above your aircraft’s estimated sea-level Vy (217 km/h).");
+    expect(comparison?.description).not.toMatch(/100%|WEP/);
+    expect(comparison?.color).toBe(iasComparison(220, 100, estimate)?.color);
+  }
+  expect(iasComparison(230, 100, { normalKph: 230, wepKph: null, estimatedKph: 217 })?.description).toContain("100%");
   expect(normalizeTelemetry({ valid: true, "IAS, km/h": 1 }, { valid: true, compass1: 0 })?.headingDeg).toBe(0);
   expect(normalizeTelemetry({ valid: true, "IAS, km/h": 1 }, { valid: true, compass1: -90 })?.headingDeg).toBe(270);
 });

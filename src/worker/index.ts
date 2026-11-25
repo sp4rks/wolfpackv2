@@ -1,5 +1,5 @@
 import { playerStats } from "./player-stats.ts";
-import { climbReference } from "./aircraft-reference.ts";
+import { climbEstimate, climbReference } from "./aircraft-reference.ts";
 import { aircraftId, isRoomKey, SOCKET_PATH, SOCKET_PROTOCOL } from "../shared/protocol.ts";
 export { SquadRoom } from "./squad-room.ts";
 
@@ -11,6 +11,8 @@ async function climbSpeed(request: Request, env: Env, url: URL): Promise<Respons
   if (request.method !== "GET") return reply("Method not allowed", 405);
   const ids = url.searchParams.getAll("aircraft");
   if (ids.length !== 1 || !aircraftId(ids[0])) return reply("Valid aircraft ID required", 400);
+  const estimatedKph = climbEstimate(ids[0]!);
+  if (estimatedKph !== undefined) return Response.json({ normalKph: null, wepKph: null, estimatedKph }, { headers: { "Cache-Control": "public, max-age=3600" } });
   const reference = climbReference(ids[0]!);
   const result = (normalKph: number | null, wepKph: number | null, seconds: number) => Response.json({ normalKph, wepKph }, { headers: { "Cache-Control": `public, max-age=${seconds}` } });
   if (!reference) return result(null, null, 300);

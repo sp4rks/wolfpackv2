@@ -1,7 +1,7 @@
 // War Thunder /indicators vehicle IDs → MEC workbook rows in wolfpack-reference.
 // IDs checked against game data and the War Thunder Wiki; chart names alone are
 // ambiguous (e.g. captured aircraft and different variants on different sheets).
-// No speeds are stored here. The SQL lookup also checks the sheet and chart name
+// The SQL lookup also checks the sheet and chart name
 // so a moved workbook row does not silently give the wrong aircraft's speeds.
 // The duplicate USSR premium LaGG-3-35 entry has no confirmed distinct game ID.
 type Reference = readonly [sheetOrder: number, aircraftRow: number, sheet: string, aircraftName: string];
@@ -311,4 +311,14 @@ const references = new Map<string, Reference>([
 
 export function climbReference(aircraft: string): Reference | undefined {
   return references.get(aircraft);
+}
+
+// Separate from workbook rows: sea-level flight-model estimate, with no throttle
+// specified. D.521 is not the D.520 and has no row in the workbook.
+// https://github.com/gszabi99/War-Thunder-Datamine/blob/79341db6c04e114bce622659fd37dfbcae310559/aces.vromfs.bin_u/gamedata/flightmodels/performance/d_521.blkx
+// altSpecs.altSpecs0.optSpeed = 60.3268 m/s; rounded after conversion to km/h.
+const estimates = new Map<string, number>([["d_521", Math.round(60.3268 * 3.6)]]);
+
+export function climbEstimate(aircraft: string): number | undefined {
+  return estimates.get(aircraft);
 }
