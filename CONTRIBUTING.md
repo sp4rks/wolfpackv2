@@ -55,7 +55,7 @@ bun run dev -- --host 127.0.0.1 --port 5173 --strictPort
 
 Open <http://127.0.0.1:5173>. The page immediately tries to read War Thunder on
 the same computer. With the game running and browser permission granted, look
-for live values under **Your instruments**. A plain dev server does not inject
+for live values under **Instruments**. A plain dev server does not inject
 fake game data; use `bun run verify:dashboard` to reproduce gameplay scenarios
 without the game.
 
@@ -78,7 +78,7 @@ For routine browser checks, prefer the self-contained verifier.
 | Area | Start here |
 | --- | --- |
 | Dashboard, settings, and display units | [`index.html`](index.html), [`dashboard.ts`](src/client/dashboard.ts), [`dashboard.css`](src/client/dashboard.css), [`derived.ts`](src/client/derived.ts) |
-| Local game reads and parsing | [`telemetry.ts`](src/client/telemetry.ts) polls and normalizes instruments; [`map.ts`](src/client/map.ts) loads map metadata and aircraft contacts; [`chat.ts`](src/client/chat.ts) reads chat and parses supported English radio calls. |
+| Local game reads and parsing | [`telemetry.ts`](src/client/telemetry.ts) polls and normalizes instruments; [`map.ts`](src/client/map.ts) loads map metadata and aircraft contacts; [`chat.ts`](src/client/chat.ts) reads chat and parses supported English radio calls; [`hud.ts`](src/client/hud.ts) observes local HUD kills. |
 | Squad invites, messages, and lifecycle | [`squad.ts`](src/client/squad.ts) manages the browser connection; [`protocol.ts`](src/shared/protocol.ts) defines allowed messages; [`index.ts`](src/worker/index.ts) and [`squad-room.ts`](src/worker/squad-room.ts) route and relay them. |
 | Climb-speed references and public stats | Client: [`climb-speed.ts`](src/client/climb-speed.ts), [`player-stats.ts`](src/client/player-stats.ts). Worker: [`index.ts`](src/worker/index.ts), [`aircraft-reference.ts`](src/worker/aircraft-reference.ts), [`player-stats.ts`](src/worker/player-stats.ts). |
 | Worker and bindings | [`cloudflare.config.ts`](cloudflare.config.ts) configures assets, the custom domain, the SQLite-backed squad Durable Object, the reference database, and the lookup rate limiter. |
@@ -92,7 +92,7 @@ The Spotter’s Index layout follows the readability snapshot from
 
 - The game connection is read-only and fixed to `127.0.0.1:8111`. It uses
   `/state`, `/indicators`, `/map_info.json`, `/map_obj.json`,
-  `/gamechat?lastId=N`, and `/map.img?gen=N`. It does not request opponent
+  `/gamechat?lastId=N`, `/hudmsg?lastEvt=0&lastDmg=N`, and `/map.img?gen=N`. It does not request opponent
   endpoints. The map uses an ordinary image element at its native aspect ratio.
   Its overlay shows up to 200 recognized aircraft from the current game map
   feed: ownship, friendly (including green non-player aircraft), and enemy.
@@ -113,6 +113,21 @@ The Spotter’s Index layout follows the readability snapshot from
   Show only the reported grid and altitude, not an inferred position. During
   retries, existing chat and sightings are historical. Sightings clear on a
   known map change, invalid map, chat ID restart, or reconnect.
+
+- The Squad kill count is a bounded, in-memory observation of the HUD `damage`
+  lane, never sender chat or a scoreboard. Nonempty sender records are ignored. It counts supported English active and
+  passive credited kills with a named attacker and vehicle, matched exactly to
+  current squad names after game colour and `=TAG= ` decoration removal. Game
+  platform suffixes remain part of the name. Initial map and reconnect batches
+  are baselined, not counted; a retry rebaselines and can miss events. Map
+  changes, metadata interruptions (including invalid, unreachable, or stale
+  metadata), and reconnect clear the summary. A missing or
+  malformed feed is unavailable, not zero. HUD content and summaries are never
+  stored or sent to the Worker or squad. English strings are informed by War
+  Thunder Datamine `menu.csv` NET_UNIT_KILLED_FM/GM and NET_*_KILLED_BY_*
+  localization; the [HUD endpoint documentation](https://github.com/lucasvmx/WarThunder-localhost-documentation/blob/master/Hudmsg/Hudmsg.md)
+  and [Tailgunner telemetry](https://github.com/TheDR-lul/Tailgunner/blob/main/src-tauri/src/wt_telemetry.rs)
+  describe the feed. Actual game and mode compatibility still needs verification.
 
 ### Squad sharing and settings
 

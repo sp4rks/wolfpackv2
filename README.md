@@ -12,7 +12,7 @@ install and no account to create.
 2. Approve the browser’s **local network access** request to see your own
    instruments. This lets Wolf Pack read flight data from War Thunder on your
    computer. Wolf Pack reads from the game; it doesn’t control it. Look for live
-   numbers under **Your instruments**.
+   numbers under **Instruments**.
 3. Want to share with friends? Set your **Player name** in **Settings** and save.
    Open **Squad** in the sidebar, select **Create squad**, then **Copy invite**.
    Send the link privately. Friends open it, set and save their player name in
@@ -28,7 +28,12 @@ Your flight instruments are shared by default when you’re connected to both th
 game and a squad. To keep them to yourself, open **Squad** in the sidebar, turn
 off **Share flight instruments with squad**, and select **Save squad preferences**.
 
-Your map, anonymous aircraft positions and game chat stay on your computer.
+Your map, anonymous aircraft positions, game chat and HUD kill observations stay on your computer.
+The Squad count is an observation from supported English game HUD messages, not
+the scoreboard. It counts matching current squad names since the map was
+connected; map metadata interruptions can reset the count. Buffered history, unsupported messages and events missed during
+retries are excluded. A dash means the local feed is unavailable. This has not
+been validated against a live game.
 The map shows current aircraft returned by the game, including friendly and
 enemy markers; visibility depends on game mode, so not every enemy is shown.
 Markers have no names and are not linked to sightings. Sightings come from some

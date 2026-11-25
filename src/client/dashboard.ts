@@ -5,6 +5,7 @@ import { createRoomKey, displayName, SAMPLE_LIFETIME_MS } from "../shared/protoc
 import type { Member, ServerMessage, Telemetry } from "../shared/protocol.ts";
 import { connectSquad, inviteKey, inviteUrl } from "./squad.ts";
 import { GAME_ORIGIN, watchTelemetry } from "./telemetry.ts";
+import { killIdentity, watchHud } from "./hud.ts";
 import { watchMap } from "./map.ts";
 import type { Contact } from "./map.ts";
 import { parseSighting, stripGameColors, watchChat } from "./chat.ts";
@@ -33,6 +34,9 @@ let generation = 0;
 let stopFeed: (() => void) | undefined;
 let stopMap: (() => void) | undefined;
 let stopChat: (() => void) | undefined;
+let stopHud: (() => void) | undefined;
+let hudAvailable = false;
+let hudCounts: ReadonlyMap<string, number> = new Map();
 let chatStatus: "disconnected" | "connecting" | "live" | "retrying" = "disconnected";
 let chatMessages: ChatMessage[] = [];
 const liveReports = new Map<string, Sighting>();
@@ -109,9 +113,18 @@ function renderInstruments(): void {
     el.setAttribute("role", "img"); el.setAttribute("aria-label", "Recent readings; cleared when data is unavailable");
   }
 }
+const localSquadName = () => selfId ? members.get(selfId)?.member.name ?? prefs.player : prefs.player;
+const remoteSquad = () => Array.from(members.values(), ({ member }) => member).filter(member => member.id !== selfId);
+function renderKillCount(): void {
+  const names = new Set([localSquadName(), ...remoteSquad().map(member => member.name)].map(killIdentity).filter((name): name is string => name !== null));
+  const kills = [...names].reduce((sum, name) => sum + (hudCounts.get(name) ?? 0), 0);
+  text("#kill-count", hudAvailable ? `${kills} KILL${kills === 1 ? "" : "S"}` : "— KILLS");
+  const label = hudAvailable ? `Squad: ${kills} observed kill${kills === 1 ? "" : "s"}` : "Squad kills unavailable";
+  const badge = $("#kill-count");
+  if (badge.getAttribute("aria-label") !== label) badge.setAttribute("aria-label", label);
+}
 function renderSquad(): void {
-  const remote = Array.from(members.values(), ({ member }) => member).filter(member => member.id !== selfId);
-  const rows = [{ name: `${selfId ? members.get(selfId)?.member.name ?? prefs.player : prefs.player} (you)`, sample: own, local: true }, ...remote.map(member => ({ ...member, local: false }))];
+  const rows = [{ name: `${localSquadName()} (you)`, sample: own, local: true }, ...remoteSquad().map(member => ({ ...member, local: false }))];
   const html = rows.map(({ name, sample: s, local }) => {
     const comparison = iasComparison(s?.iasKph ?? null, s?.throttlePct ?? null, reference);
     const iasAttrs = comparison ? ` style="color:${comparison.color}" title="${escape(comparison.description)}"` : "";
@@ -119,6 +132,7 @@ function renderSquad(): void {
     return `<tr><td>${escape(name)}</td><td data-label="Aircraft">${escape(s?.aircraft ?? "—")}</td><td data-label="Vy 100%">${local ? target(reference?.normalKph) : "—"}</td><td data-label="Vy WEP">${local ? target(reference?.wepKph) : "—"}</td><td data-label="IAS"><span${iasAttrs}>${speed(s?.iasKph ?? null, prefs)} ${speedUnit(prefs)}${comparison ? `<span class="visually-hidden">. ${escape(comparison.description)}</span>` : ""}</span></td><td data-label="Altitude">${altitude(s?.altitudeM ?? null, prefs)} ${prefs.altitude}</td><td data-label="Bearing"><span class="bearing-value">${bearing(s?.headingDeg ?? null)} ${arrow(s?.headingDeg)}</span></td><td data-label="Climb">${climb(s?.climbMps ?? null, prefs)} ${climbUnit(prefs)}</td><td data-label="Throttle">${s?.throttlePct == null ? "—" : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(s.throttlePct)}%`}</td></tr>`;
   }).join("");
   $("#squad-rows").innerHTML = html;
+  renderKillCount();
 }
 function renderReports(): void {
   const focused = document.activeElement instanceof HTMLButtonElement ? document.activeElement.dataset.target : undefined;
@@ -176,8 +190,12 @@ function updateAges(): void {
 }
 function clearReports(): void { profiles.clear(); liveReports.clear(); selectedKey = null; renderReports(); }
 function renderChat(): void {
-  text("#chat-subtitle", chatStatus === "disconnected" ? "Game chat disconnected." : chatStatus === "connecting" ? "Connecting to local game chat…" : chatStatus === "retrying" ? "Chat unavailable · retrying; previous messages are not current" : "Read-only · initial history is undated; times show arrival in Wolf Pack, not game time");
-  $("#chat-list").innerHTML = chatMessages.map(m => `<li><time>${m.receivedAt === null ? "—" : escape(new Date(m.receivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }))}</time><b>${escape(m.sender ?? "Unknown")}${m.channel === null ? "" : ` · ${escape(m.channel)}`}</b><span>${escape(stripGameColors(m.msg))}</span></li>`).join("") || `<li>${chatStatus === "disconnected" ? "Game disconnected." : chatStatus === "retrying" ? "Waiting for chat; retrying…" : "No messages received."}</li>`;
+  const status = chatStatus === "disconnected" ? "Game chat disconnected." : chatStatus === "connecting" ? "Connecting to local game chat…" : chatStatus === "retrying" ? "Chat unavailable; retrying. Previous messages are not current." : "";
+  const messages = chatMessages.map(m => {
+    const time = m.receivedAt === null ? "—" : new Date(m.receivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    return `<li><time aria-label="${m.receivedAt === null ? "Undated initial history" : `${escape(time)}, arrival time in Wolf Pack, not game time`}">${escape(time)}</time><b>${escape(m.sender ?? "Unknown")}${m.channel === null ? "" : ` · ${escape(m.channel)}`}</b><span>${escape(stripGameColors(m.msg))}</span></li>`;
+  }).join("");
+  $("#chat-list").innerHTML = (status ? `<li class="chat-status" role="status">${status}</li>` : "") + (messages || (!status ? "<li class=\"chat-status\">No messages received.</li>" : ""));
 }
 function remember(member: Member): void { members.set(member.id, { member, seenAt: performance.now() }); }
 function roomMessage(message: ServerMessage): void {
@@ -189,9 +207,6 @@ function roomMessage(message: ServerMessage): void {
   renderSquad();
 }
 function renderPublishing(): void {
-  text("#player-stats-disclosure", prefs.playerStats
-    ? "New target nicknames are sent via Wolf Pack to ThunderSkill; turn off in Settings."
-    : "Public player lookups are off in Settings.");
   text("#publish-status", !prefs.shareInstruments
     ? "Instrument sharing is off."
     : own && selfId ? "Sharing your flight instruments with the squad."
@@ -245,7 +260,11 @@ mapImage.addEventListener("error", () => {
   clearContacts();
   text("#map-status", "Could not load the local game map. Retrying…"); visible("#map-status", true);
 });
+function stopKills(): void {
+  stopHud?.(); stopHud = undefined; hudAvailable = false; hudCounts = new Map(); renderKillCount();
+}
 function stopGame(): void {
+  stopKills();
   stopFeed?.(); stopFeed = undefined;
   stopMap?.(); stopMap = undefined;
   stopChat?.(); stopChat = undefined; chatStatus = "disconnected"; chatMessages = []; knownMap = null;
@@ -290,7 +309,7 @@ $("#copy-invite").addEventListener("click", async () => {
 });
 function startGame(): void {
   connection("game", "pending", "Connecting");
-  text("#feed-status", "Connecting to the local game. Allow loopback access if prompted.");
+  text("#feed-status", "Connecting to the local game. Allow loopback access if prompted."); visible("#feed-status", true);
   text("#map-status", "Connecting to the local game map…");
   chatStatus = "connecting"; renderChat(); renderReports();
   stopChat = watchChat(update => {
@@ -323,15 +342,20 @@ function startGame(): void {
     else if (update.status === "unreachable") text("#feed-status", "Cannot reach War Thunder. Check the game and browser loopback access; retrying.");
     else if (update.status === "waiting") text("#feed-status", "Game connected; aircraft instruments are unavailable.");
     else text("#feed-status", `Connected to local game instruments · ${update.sample?.aircraft ?? "Aircraft"} · recent history`);
+    visible("#feed-status", update.status !== "live");
     renderInstruments(); renderSquad();
   });
   stopMap = watchMap(update => {
     if (update.status !== "ready") {
       if (update.status === "invalid" && knownMap !== null) { clearReports(); knownMap = null; }
+      if (stopHud) stopKills();
       clearMap(update.status === "waiting" || update.status === "invalid" ? "Game map unavailable; waiting for a valid map." : "Cannot reach game map metadata. Retrying…"); return;
     }
-    if (knownMap !== null && knownMap !== update.generation) clearReports();
-    knownMap = update.generation;
+    if (knownMap !== update.generation || !stopHud) {
+      if (knownMap !== null && knownMap !== update.generation) clearReports();
+      stopKills(); knownMap = update.generation;
+      stopHud = watchHud(update => { hudAvailable = update.available; hudCounts = update.counts; renderKillCount(); });
+    }
     mapAt = performance.now();
     if (mapGeneration !== update.generation || !mapImage.hasAttribute("src")) {
       mapGeneration = update.generation; mapImage.hidden = true;
@@ -416,9 +440,9 @@ setInterval(() => {
   if (own && performance.now() - ownAt >= SAMPLE_LIFETIME_MS) {
     own = null; ownAt = 0; lookup.set(null); histories = emptyHistories(); syncPublishing();
     connection("game", "pending", "Readings stale; waiting for game");
-    text("#feed-status", "Readings are stale; waiting for the local game."); renderInstruments(); changed = true;
+    text("#feed-status", "Readings are stale; waiting for the local game."); visible("#feed-status", true); renderInstruments(); changed = true;
   }
-  if (mapAt && performance.now() - mapAt >= SAMPLE_LIFETIME_MS) clearMap("Game map is stale; waiting for metadata.");
+  if (mapAt && performance.now() - mapAt >= SAMPLE_LIFETIME_MS) { stopKills(); clearMap("Game map is stale; waiting for metadata."); }
   if (contactsAt && performance.now() - contactsAt >= SAMPLE_LIFETIME_MS) clearContacts("unavailable");
   if (changed) renderSquad();
   updateAges();

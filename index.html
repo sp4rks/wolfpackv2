@@ -27,7 +27,7 @@
             <label>Squad name (local label only)<input name="squad" required maxlength="32" autocomplete="off"></label>
             <label class="sharing-preference"><input type="checkbox" name="shareInstruments" aria-describedby="sharing-help"> <span>Share flight instruments with squad</span></label>
             <button type="submit" class="button-primary">Save squad preferences</button>
-            <small id="sharing-help">On by default. Only your flight instruments are shared. Map, chat and sightings stay local. Public stats lookup is separate in Settings.</small>
+            <small id="sharing-help">On by default. Only your flight instruments are shared. Map, chat, sightings and HUD kill observations stay local. Public stats lookup is separate in Settings.</small>
           </form>
         </div>
       </div>
@@ -39,7 +39,7 @@
     <main id="main" class="page">
       <h1 class="visually-hidden">Flight overview</h1>
       <section class="squad panel" aria-labelledby="squad-title">
-          <div class="section-head"><h2 id="squad-title">Squad</h2></div>
+          <div class="section-head"><h2 id="squad-title">Squad</h2><span class="count" id="kill-count" role="status" aria-label="Squad kills unavailable">— KILLS</span></div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -61,10 +61,7 @@
         </section>
       <section class="sightings panel" aria-labelledby="sightings-title">
           <div class="section-head">
-            <div>
-              <h2 id="sightings-title">Sightings</h2>
-              <p>Local radio reports · not live tracks or map positions. <span id="player-stats-disclosure">New target nicknames are sent via Wolf Pack to ThunderSkill; turn off in Settings.</span></p>
-            </div>
+            <h2 id="sightings-title">Sightings</h2>
             <span class="count" id="report-count">UNAVAILABLE</span>
           </div>
           <p class="empty-state" id="sighting-empty">Connecting to game chat…</p>
@@ -84,10 +81,7 @@
         </section>
       <section class="map-panel panel" aria-labelledby="map-title">
           <div class="section-head map-head">
-            <div>
-              <h2 id="map-title">Operating map</h2>
-              <p id="map-subtitle">Local game map · not shared</p>
-            </div>
+            <h2 id="map-title">Map</h2>
             <span class="map-scale" aria-label="North">
               N
               <svg viewBox="0 0 16 20" aria-hidden="true">
@@ -131,7 +125,8 @@
           </div>
         </section>
       <section class="instruments panel" aria-labelledby="instrument-title">
-          <div class="section-head"><div><h2 id="instrument-title">Your instruments</h2><p id="feed-status" role="status">Connecting to the local game. Allow loopback access if prompted.</p></div></div>
+          <div class="section-head"><h2 id="instrument-title">Instruments</h2></div>
+          <p class="feed-status" id="feed-status" role="status">Connecting to the local game. Allow loopback access if prompted.</p>
           <div class="instrument-readings">
             <div><span>Indicated airspeed</span><p><strong data-value="ias">—</strong> <small data-unit="speed">km/h</small></p><span class="trace" data-trace="ias"></span></div>
             <div><span>True airspeed</span><p><strong data-value="tas">—</strong> <small data-unit="speed">km/h</small></p><span class="trace" data-trace="tas"></span></div>
@@ -145,10 +140,7 @@
         </section>
       <section class="chat panel" aria-labelledby="chat-title">
           <div class="section-head">
-            <div>
-              <h2 id="chat-title">Game chat</h2>
-              <p id="chat-subtitle">Connecting to local game chat…</p>
-            </div>
+            <h2 id="chat-title">Chat</h2>
           </div>
           <ul id="chat-list" tabindex="0" aria-label="Game chat messages"><li>Connecting…</li></ul>
         </section>
@@ -156,10 +148,7 @@
     <dialog id="settings-dialog" aria-labelledby="settings-title">
       <form id="settings-form">
         <div class="dialog-head">
-          <div>
-            <h2 id="settings-title">Settings</h2>
-            <p>Preferences saved on this device</p>
-          </div>
+          <h2 id="settings-title">Settings</h2>
           <button
             class="close-button"
             type="button"

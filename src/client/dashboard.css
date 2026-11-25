@@ -80,11 +80,6 @@ a:focus-visible {
   line-height: 1.2;
   letter-spacing: -0.01em;
 }
-.section-head p {
-  font-size: 1rem;
-  color: var(--muted);
-  margin: 0;
-}
 .map-scale {
   font-weight: 700;
   font-size: 1rem;
@@ -106,6 +101,7 @@ a:focus-visible {
   color: #455e57;
   font-weight: 800;
   white-space: nowrap;
+  margin-inline-start: auto;
 }
 .instruments .section-head {
   padding-bottom: 11px;
@@ -253,7 +249,6 @@ dialog form {
   margin: 0 0 4px;
   font-size: 22px;
 }
-.dialog-head p,
 .help {
   font-size: 1rem;
   color: #586e68;
@@ -421,7 +416,6 @@ dialog form {
   padding: 3px 5px;
   font-size: 1rem;
 }
-.dialog-head p,
 .help,
 .settings-nav button {
   color: #455e57;
@@ -457,7 +451,7 @@ dialog form {
 .connection-actions .button-primary { background: #345b59; color: white; border-color: #345b59; }
 .connection-actions button:disabled { opacity: .55; cursor: not-allowed; }
 .empty-state { color: #455e57; margin: 4px 18px 18px; }
-.chat li:only-child { display: block; color: #455e57; }
+
 .chat li, .chat li span, .chat li b, .selected-text, .sightings-table td { overflow-wrap: anywhere; min-width: 0; }
 .chat ul { max-height: 20rem; overflow-y: auto; }
 .selected-text p, .sightings-table td { white-space: normal; }
@@ -570,3 +564,5 @@ body { display: grid; grid-template-columns: var(--sidebar-width, 132px) minmax(
 #selected-stats table { font-size: .9rem; table-layout: fixed; }
 #selected-stats th, #selected-stats td { padding: 4px 4px; white-space: normal; overflow-wrap: anywhere; }
 #selected-stats th { font-size: .9rem; }
+.feed-status { color: #455e57; margin: 0 18px 16px; }
+.chat li.chat-status { display: block; color: #455e57; }

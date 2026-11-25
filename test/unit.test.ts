@@ -279,3 +279,33 @@ test("player stats endpoint forwards only a bounded nickname and honors provider
     expect((await playerStats(request('{"nickname":"Ace_1"}'), limited, url)).status).toBe(429);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+describe("local HUD kill feed", () => {
+  test("credits exact named active and passive killers only", async () => {
+    const { killAttacker, killIdentity } = await import("../src/client/hud.ts");
+    expect(killAttacker("<color=red>=CLAN= Pilot@live (Spitfire Mk (IX))</color> shot down Target (Bf 109)")).toBe("pilot@live");
+    expect(killAttacker("Pilot (Plane) destroyed Target")).toBe("pilot");
+    expect(killAttacker("Victim (Plane) shot down by =TAG= Pilot@psn (F-16).")).toBe("pilot@psn");
+    expect(killAttacker("Victim (Plane) shot down  by Pilot (F-16)")).toBe("pilot");
+    expect(killAttacker("Pilot (Plane) destroyed  Target")).toBe("pilot");
+    expect(killAttacker("Pilot (Plane) shot down  by AI")).toBeNull();
+    expect(killAttacker("Pilot (Plane) destroyed  by AI")).toBeNull();
+    expect(killAttacker("Victim (Tank) has been destroyed by Pilot (Tank)")).toBe("pilot");
+    expect(killAttacker("Victim (Plane) destroyed by Pilot (Plane)")).toBe("pilot");
+    for (const msg of ["Pilot (Plane) shot down by AI", "Pilot (Plane) set afire Target (Plane)", "Pilot (Plane) assisted Target", "Pilot (Plane) has crashed.", "Pilot (Plane) destroyed Target (teamkill)", "Pilot destroyed Target"]) expect(killAttacker(msg)).toBeNull();
+    expect(killIdentity("=TAG= PiLoT@live")).toBe("pilot@live");
+    expect(killIdentity("Pilot@live")).not.toBe(killIdentity("Pilot"));
+  });
+  test("validates response and sorts/deduplicates unsorted IDs", async () => {
+    const { hudDamage } = await import("../src/client/hud.ts");
+    expect(() => hudDamage([])).toThrow();
+    expect(() => hudDamage({ damage: [] })).toThrow();
+    expect(hudDamage({ events: [], damage: [
+      { id: 4, msg: "Wing (Plane) destroyed Other" },
+      { id: 2, msg: "Pilot (Plane) destroyed Target" },
+      { id: 4, msg: "Pilot (Plane) destroyed Other" },
+      { id: 3, msg: "Pilot (Plane) destroyed Other", enemy: true },
+      { id: 5, msg: 2 }, { id: 6, msg: "Pilot (Plane) destroyed Target", sender: "spoof" }, { id: -1, msg: "x" },
+    ] })).toEqual([{ id: 2, attacker: "pilot" }, { id: 3, attacker: null }, { id: 4, attacker: "wing" }, { id: 5, attacker: null }, { id: 6, attacker: null }]);
+  });
+});
