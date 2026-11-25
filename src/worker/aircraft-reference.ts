@@ -309,15 +309,70 @@ const references = new Map<string, Reference>([
   ["so_8000_narval", [33, 43, "French Premiums", "S.O.8000 Narval"]],
 ]);
 
+// Exact variants with verified equivalent flight models and equipment.
+const aliases = new Map<string, string>([
+  ["a6m2_zero_china", "a6m2_zero"],
+  ["a6m5_zero_china", "a6m5_zero"],
+  ["bf-109e-3_tl", "bf-109e-3"],
+  ["bf-109f-4_hungary", "bf-109f-4"],
+  ["d_520", "d_520_france"],
+  ["f2a-1_nvidia", "f2a-1"],
+  ["f4u-4b_vmf_214", "f4u-4b"],
+  ["he_112b_1_italy", "he_112b_1"],
+  ["i-153_m62_china", "i-153_m62"],
+  ["i-16_type10_china", "i-16_type10"],
+  ["ki-27_otsu_china", "ki-27_otsu"],
+  ["ki_61_1a_hei_ep", "ki_61_1a_hei"],
+  ["ki_61_1a_otsu_china", "ki_61_1a_otsu"],
+  ["la-11_china", "la-11"],
+  ["la-9_china", "la-9"],
+  ["p-36a_rasmussen", "p-36a"],
+  ["p-36c_rb", "p-36c"],
+  ["p-38j_marge", "p-38j"],
+  ["p-38l_1_china_rocaf", "p-38l"],
+  ["p-40c_china", "p-40c"],
+  ["p-40e_china", "p-40e"],
+  ["p-40e_td", "p-40e"],
+  ["p-51d-20_china", "p-51d-20-na"],
+  ["p-63c-5_kingcobra_animal_version", "p-63c-5"],
+  ["sea_fury_fb51", "sea_fury_fb11"],
+  ["spitfire_fr_mk14e_belgium", "spitfire_fr_mk14e"],
+  ["spitfire_mk5b_italy", "spitfire_mk5b"],
+  ["yak-9p_hungary", "yak-9p"],
+]);
+
 export function climbReference(aircraft: string): Reference | undefined {
-  return references.get(aircraft);
+  return references.get(aircraft) ?? references.get(aliases.get(aircraft) ?? "");
 }
 
-// Separate from workbook rows: sea-level flight-model estimate, with no throttle
-// specified. D.521 is not the D.520 and has no row in the workbook.
-// https://github.com/gszabi99/War-Thunder-Datamine/blob/79341db6c04e114bce622659fd37dfbcae310559/aces.vromfs.bin_u/gamedata/flightmodels/performance/d_521.blkx
-// altSpecs.altSpecs0.optSpeed = 60.3268 m/s; rounded after conversion to km/h.
-const estimates = new Map<string, number>([["d_521", Math.round(60.3268 * 3.6)]]);
+// Sea-level altSpecs.altSpecs0.optSpeed, in m/s converted to km/h and rounded.
+// Exact aircraft IDs only, separate from workbook rows; throttle is unspecified.
+// See CONTRIBUTING for the source, selection criteria and limitations.
+const estimates = new Map<string, number>([
+  ["bf-109g-2_romania", 247],
+  ["cr_32", 188],
+  ["d_521", 217],
+  ["f7f3", 294],
+  ["fury_mk1", 138],
+  ["fury_mk2", 160],
+  ["gladiator_mk2_navy", 164],
+  ["he51b_2w", 160],
+  ["i-15_1935", 181],
+  ["ki_102_otsu", 264],
+  ["ki_43_3_ko", 239],
+  ["lagg-3-23", 251],
+  ["lagg-3-34", 236],
+  ["lagg-3-4", 249],
+  ["lagg-i-301", 244],
+  ["nimrod_mk1", 119],
+  ["nimrod_mk2", 138],
+  ["p-26a_34_m2", 193],
+  ["p-38k", 263],
+  ["p-47d_23_ra_china_rocaf", 282],
+  ["p-51a_tl", 271],
+  ["xf5f", 254],
+  ["yak-9m", 257],
+]);
 
 export function climbEstimate(aircraft: string): number | undefined {
   return estimates.get(aircraft);

@@ -30,6 +30,31 @@ test("reference API uses isolated D1, exact mapped rows and safe failure respons
   expect(await response.json()).toEqual({ normalKph: 200, wepKph: 210 });
   expect(response.headers.get("Cache-Control")).toContain("max-age=3600");
   expect(await (await get("d_520_france")).json()).toEqual({ normalKph: 220, wepKph: 230 });
+  for (const [alias, original, normalKph, wepKph] of [
+    ["d_520", "d_520_france", 220, 230],
+    ["p-36a_rasmussen", "p-36a", 200, 200],
+    ["p-40c_china", "p-40c", 200, 200],
+    ["p-38l_1_china_rocaf", "p-38l", 250, 260],
+    ["he_112b_1_italy", "he_112b_1", 200, 200],
+    ["i-153_m62_china", "i-153_m62", 190, 200],
+  ] as const) {
+    for (const id of [alias, original]) {
+      response = await get(id);
+      expect(await response.json()).toEqual({ normalKph, wepKph });
+      expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    }
+  }
+  const estimates = { "cr_32": 188, "d_521": 217, "p-38k": 263 };
+  for (const [id, estimatedKph] of Object.entries(estimates)) {
+    response = await get(id);
+    expect(await response.json()).toEqual({ normalKph: null, wepKph: null, estimatedKph });
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
+  }
+  for (const id of ["cr_32_bis", "po-2_nw", "d_371", "ms_405c1", "d_520_extra", "p-38k_extra"]) {
+    response = await get(id);
+    expect(await response.json()).toEqual({ normalKph: null, wepKph: null });
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");
+  }
   response = await get("d_521");
   expect(await response.json()).toEqual({ normalKph: null, wepKph: null, estimatedKph: 217 });
   expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
@@ -45,10 +70,20 @@ test("reference API uses isolated D1, exact mapped rows and safe failure respons
   // A moved/renamed row never silently becomes a different aircraft's reference.
   await db.prepare("UPDATE mec_aircraft SET aircraft = ? WHERE sheet_order = ? AND aircraft_row = ?").bind("Wrong", 4, 93).run();
   expect(await (await get("p-51_mk1a_usaaf")).json()).toEqual({ normalKph: null, wepKph: null });
+  await db.prepare("UPDATE mec_aircraft SET aircraft = ? WHERE sheet_order = ? AND aircraft_row = ?").bind("Wrong", 31, 63).run();
+  response = await get("d_520");
+  expect(await response.json()).toEqual({ normalKph: null, wepKph: null });
+  expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");
+  await db.prepare("DELETE FROM mec_aircraft WHERE sheet_order = ? AND aircraft_row = ?").bind(4, 173).run();
+  response = await get("p-38l_1_china_rocaf");
+  expect(await response.json()).toEqual({ normalKph: null, wepKph: null });
+  expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");
   await db.exec("DROP TABLE mec_aircraft");
   response = await get("p-51_mk1a_usaaf");
   expect(response.status).toBe(503);
   expect(response.headers.get("Cache-Control")).toBe("no-store");
+  expect((await get("d_520")).status).toBe(503);
+  expect((await get("p-38l_1_china_rocaf")).status).toBe(503);
   response = await get("d_521");
   expect(await response.json()).toEqual({ normalKph: null, wepKph: null, estimatedKph: 217 });
   expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");

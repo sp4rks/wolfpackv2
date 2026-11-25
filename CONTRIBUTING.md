@@ -168,11 +168,21 @@ The Spotter’s Index layout follows the readability snapshot from
   `79341db6c04e114bce622659fd37dfbcae310559`. An unverified duplicate LaGG row is
   omitted. See the [MEC workbook](https://docs.google.com/spreadsheets/d/1rmN88QSthSclf7kxd6-miXjPFZEGmBQ5xMumqixKC6s/edit#gid=1236982432),
   also recorded in `mec_workbook.source_url`.
-- D.521 has no workbook row and is not aliased to D.520. Its single estimated
-  sea-level Vy is derived from the [D.521 flight-model performance data](https://github.com/gszabi99/War-Thunder-Datamine/blob/79341db6c04e114bce622659fd37dfbcae310559/aces.vromfs.bin_u/gamedata/flightmodels/performance/d_521.blkx):
-  `altSpecs.altSpecs0.optSpeed` is 60.3268 m/s, rounded to 217 km/h.
-  The source does not specify a throttle setting; this is an estimate, not a
-  separate 100% or WEP reference, and may not apply at altitude.
+- Exact aliases resolve the unit's `fmFile` and require identical effective
+  flight-model bytes, with wrapper differences limited to cosmetic keys or
+  byte-identical default weapons presets; loadout and upgrades were checked.
+  D.521 is distinct from D.520 and has no workbook row. For selected unmapped
+  aircraft, estimates come from the pinned [datamine](https://github.com/gszabi99/War-Thunder-Datamine/tree/79341db6c04e114bce622659fd37dfbcae310559):
+  sea-level `altSpecs.altSpecs0.optSpeed` from the aircraft's performance file,
+  converted from m/s to km/h and rounded (D.521: 60.3268 m/s → 217 km/h).
+  Candidates had an economy rank and fighter or interceptor tag, but no jet fighter
+  tag. Copied performance files were excluded unless their aircraft also had
+  identical same-basename flight-model data. Speeds and climb had to be positive
+  and finite, optimum speed below performance maximum, and performance maximum
+  no greater than the current shop maximum speed. Workbook mappings take priority;
+  the checked-in mappings and estimates do not require a runtime network lookup.
+  These estimates have no specified throttle setting, are not separate 100% or
+  WEP references, and may not apply at altitude.
 - Squad IAS colours compare each reading with **the viewer’s aircraft target**,
   using each row’s throttle to choose between the normal and WEP references.
   Above 100% throttle, use WEP when available and the 100% target otherwise;

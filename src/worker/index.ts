@@ -11,11 +11,13 @@ async function climbSpeed(request: Request, env: Env, url: URL): Promise<Respons
   if (request.method !== "GET") return reply("Method not allowed", 405);
   const ids = url.searchParams.getAll("aircraft");
   if (ids.length !== 1 || !aircraftId(ids[0])) return reply("Valid aircraft ID required", 400);
-  const estimatedKph = climbEstimate(ids[0]!);
-  if (estimatedKph !== undefined) return Response.json({ normalKph: null, wepKph: null, estimatedKph }, { headers: { "Cache-Control": "public, max-age=3600" } });
   const reference = climbReference(ids[0]!);
   const result = (normalKph: number | null, wepKph: number | null, seconds: number) => Response.json({ normalKph, wepKph }, { headers: { "Cache-Control": `public, max-age=${seconds}` } });
-  if (!reference) return result(null, null, 300);
+  if (!reference) {
+    const estimatedKph = climbEstimate(ids[0]!);
+    if (estimatedKph !== undefined) return Response.json({ normalKph: null, wepKph: null, estimatedKph }, { headers: { "Cache-Control": "public, max-age=3600" } });
+    return result(null, null, 300);
+  }
   try {
     const row = await env.REFERENCE.prepare("SELECT climb_ias_100_percent_kmh AS normalKph, climb_ias_wep_kmh AS wepKph FROM mec_aircraft WHERE sheet_order = ? AND aircraft_row = ? AND sheet = ? AND aircraft = ? LIMIT 1").bind(...reference).first<{ normalKph: unknown; wepKph: unknown }>();
     const valid = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null;
