@@ -44,8 +44,30 @@ fails. Run the full dashboard suite before integrating dashboard changes.
 | Squad relay | Start the local server on port 5173 as shown below, then run `bun run test:room` in a second terminal. It uses real local Worker and Durable Object sockets. |
 | Dashboard test runner | `bun run test:dashboard-runner` checks isolation, failure handling, and cleanup. |
 
-Do not run `bun run deploy` as a verification step. Deployment and production
-provisioning are managed separately.
+Use the local checks above for routine verification. Deploy to production only
+with explicit approval.
+
+## Deploy
+
+Live deployment also requires curl. To authenticate from a fresh checkout, run
+`bun install --frozen-lockfile`, then `bun run cf auth login`. For unattended
+runs, set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; the token takes
+priority over stored login. See [Cloudflare's credential guidance](https://developers.cloudflare.com/cf/ci/#provide-credentials).
+The dry run needs no Cloudflare credentials.
+
+```sh
+bun run deploy               # install, check, and validate the build without uploading
+bun run deploy --dry-run     # same as the default
+bun run deploy --live        # publish, then check production health
+```
+
+Both modes install frozen dependencies and run `bun run check`. Run the local
+integration checks separately. The Cloudflare CLI builds the Worker as part of
+deployment. After publishing, the script makes a bounded GET to
+<https://wolfpack.sprks.me/api/health> and expects HTTP 200 and
+`{"message":"ok"}`. This checks endpoint health; it cannot identify the serving
+version. If the smoke test fails, the script reports the failure without
+rolling back or redeploying.
 
 ## Open the dashboard locally
 
