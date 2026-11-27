@@ -5,7 +5,7 @@ import type { Member, ServerMessage, Telemetry } from "../shared/protocol.ts";
 import { connectSquad, inviteKey, inviteUrl } from "./squad.ts";
 import { GAME_ORIGIN, watchTelemetry } from "./telemetry.ts";
 import { killIdentity, watchHud } from "./hud.ts";
-import { watchMap } from "./map.ts";
+import { contactCrop, watchMap } from "./map.ts";
 import type { Contact } from "./map.ts";
 import { mergeSighting, parseSighting, stripGameColors, watchChat } from "./chat.ts";
 import type { ChatMessage, Sighting } from "./chat.ts";
@@ -256,14 +256,17 @@ function syncPublishing(): void {
 function renderContacts(): void {
   const loaded = !mapImage.hidden;
   const layer = $("#live-contacts");
+  const crop = contactCrop(loaded ? contacts : null);
+  mapImage.style.transform = `scale(${1 / crop.size}) translate(${-crop.x * 100}%, ${-crop.y * 100}%)`;
   layer.replaceChildren();
   if (loaded && contacts) for (const contact of contacts) {
     const marker = document.createElement("span");
     marker.className = `live-contact ${contact.kind}`;
-    marker.style.left = `${contact.x * 100}%`; marker.style.top = `${contact.y * 100}%`;
+    marker.style.left = `${(contact.x - crop.x) / crop.size * 100}%`; marker.style.top = `${(contact.y - crop.y) / crop.size * 100}%`;
     layer.append(marker);
   }
   visible("#live-map-frame", loaded);
+  visible("#map-metadata", loaded);
   if (contactsStatus === "unavailable" && mapGeneration !== null) text("#contacts-status", "Aircraft feed unavailable; retrying.");
   else if (!loaded || contactsStatus !== "ready" || !contacts) text("#contacts-status", "Waiting for the local game map and aircraft feed.");
   else {
@@ -280,6 +283,7 @@ function clearContacts(status: "waiting" | "unavailable" = "waiting"): void {
 }
 function clearMap(message: string): void {
   mapAt = 0; mapGeneration = null;
+  text("#map-name", ""); text("#map-area", "");
   mapImage.hidden = true; mapImage.removeAttribute("src");
   clearContacts();
   text("#map-status", message); visible("#map-status", true);
@@ -292,6 +296,7 @@ mapImage.addEventListener("load", () => {
 mapImage.addEventListener("error", () => {
   if (!stopMap) return;
   mapImage.hidden = true; mapImage.removeAttribute("src");
+  text("#map-name", ""); text("#map-area", "");
   clearContacts();
   text("#map-status", "Could not load the local game map. Retrying…"); visible("#map-status", true);
 });
@@ -392,6 +397,9 @@ function startGame(): void {
       stopHud = watchHud(update => { hudAvailable = update.available; hudCounts = update.counts; syncKills(); renderKillCount(); });
     }
     mapAt = performance.now();
+    const { name, areaKm2 } = update.metadata;
+    text("#map-name", name ?? "Name unavailable");
+    text("#map-area", areaKm2 === null ? "Area unavailable" : `${new Intl.NumberFormat(undefined, { maximumSignificantDigits: 4, notation: areaKm2 >= 1e9 || areaKm2 < .001 ? "scientific" : "standard" }).format(areaKm2)} km²`);
     if (mapGeneration !== update.generation || !mapImage.hasAttribute("src")) {
       mapGeneration = update.generation; mapImage.hidden = true;
       clearContacts();

@@ -4,7 +4,7 @@ import { createRoomKey, isRoomKey, parseClientMessage, roomSighting } from "../s
 import { connectSquad, inviteKey, inviteUrl } from "../src/client/squad.ts";
 import { addHistory, altitude, bearing, climb, climbAngle, defaults, emptyHistories, preferences, speed, temperature } from "../src/client/derived.ts";
 import { mergeSighting, normalizeChat, parseSighting, stripGameColors } from "../src/client/chat.ts";
-import { CONTACT_LIMIT, mapContacts, mapGeneration, watchMap } from "../src/client/map.ts";
+import { CONTACT_LIMIT, contactCrop, mapContacts, mapGeneration, mapMetadata, watchMap } from "../src/client/map.ts";
 
 const sampleOwn = { aircraft: "test", iasKph: 286, tasKph: 304, altitudeM: 2450, headingDeg: 74, climbMps: 4.2, throttlePct: 87, waterTempC: 91, oilTempC: 78, propPitch: null, manifoldPressure: null };
 
@@ -92,6 +92,25 @@ describe("dashboard readings and settings", () => {
 });
 
 describe("game map metadata", () => {
+  test("uses only explicit name and valid full map bounds in metres", () => {
+    expect(mapMetadata({ map_name: " Valley ", map_min: ["-1000", 500], map_max: [3000, "2500"] })).toEqual({ name: "Valley", areaKm2: 8 });
+    expect(mapMetadata({ map_min: [0, 0], map_max: [1000, 2000] })).toEqual({ name: null, areaKm2: 2 });
+    for (const bounds of [
+      {}, { map_min: [0, 0], map_max: [0, 1000] }, { map_min: [1, 0], map_max: [0, 1000] },
+      { map_min: ["", 0], map_max: [1000, 1000] }, { map_min: [0, 0], map_max: ["Infinity", 1000] },
+      { map_min: [0, 0], map_max: [1e308, 1e308] },
+    ]) expect(mapMetadata(bounds).areaKm2).toBeNull();
+    expect(mapMetadata({ map_name: " ", map_generation: 7 })).toEqual({ name: null, areaKm2: null });
+  });
+  test("fits and clamps normalized contact crops with bounded zoom", () => {
+    const contact = (x: number, y: number) => ({ kind: "own" as const, x, y });
+    expect(contactCrop(null)).toEqual({ x: 0, y: 0, size: 1 });
+    expect(contactCrop([])).toEqual({ x: 0, y: 0, size: 1 });
+    expect(contactCrop([contact(0, 1)])).toEqual({ x: 0, y: .75, size: .25 });
+    const crop = contactCrop([contact(.25, .75), contact(.75, .25)]);
+    expect(crop.size).toBeCloseTo(.625); expect(crop.x).toBeCloseTo(.1875); expect(crop.y).toBeCloseTo(.1875);
+    expect(contactCrop([contact(0, 0), contact(1, 1)])).toEqual({ x: 0, y: 0, size: 1 });
+  });
   test("accepts numeric generations only and rejects invalid or absent status", () => {
     expect(mapGeneration({ map_generation: "12" })).toBe(12);
     expect(mapGeneration({ valid: true, map_generation: 0 })).toBe(0);

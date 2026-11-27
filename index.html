@@ -78,8 +78,22 @@
               <tbody id="sighting-rows"></tbody>
             </table>
           </div>
+          <div class="selected-report" id="selected-report" hidden>
+            <div class="selected-text">
+              <h3>
+                <span id="selected-aircraft"></span>
+                <b id="selected-grid"></b>
+              </h3>
+              <p>
+                <span id="selected-player"></span>
+                · <span id="selected-altitude"></span> ·
+                <span id="selected-age"></span><span id="selected-reporter"></span>
+              </p>
+            </div>
+            <div id="selected-stats" aria-live="polite"></div>
+          </div>
         </section>
-      <section class="map-panel panel" aria-labelledby="map-title">
+      <section class="map-panel" aria-labelledby="map-title">
           <div class="section-head map-head">
             <h2 id="map-title">Map</h2>
             <span class="map-scale" aria-label="North">
@@ -95,7 +109,8 @@
             aria-label="Local War Thunder operating map." id="map"
           >
             <div id="live-map-frame" hidden>
-              <img id="live-map" alt="War Thunder operating map" hidden>
+              <div class="map-image-viewport"><img id="live-map" alt="War Thunder operating map" hidden></div>
+              <div id="map-metadata" hidden><span id="map-name"></span><span aria-hidden="true"> · </span><span id="map-area"></span></div>
               <div id="live-contacts" aria-hidden="true"></div>
             </div>
             <p id="map-status" role="status">Connecting to the local game map…</p>
@@ -108,20 +123,6 @@
             </div>
             <p id="contacts-status" role="status">Waiting for the local game map and aircraft feed.</p>
             <p>Current aircraft returned by the game map; visibility depends on game mode. Not linked to radio reports.</p>
-          </div>
-          <div class="selected-report" id="selected-report" hidden>
-            <div class="selected-text">
-              <h3>
-                <span id="selected-aircraft"></span>
-                <b id="selected-grid"></b>
-              </h3>
-              <p>
-                <span id="selected-player"></span>
-                · <span id="selected-altitude"></span> ·
-                <span id="selected-age"></span><span id="selected-reporter"></span>
-              </p>
-            </div>
-            <div id="selected-stats" aria-live="polite"></div>
           </div>
         </section>
       <section class="instruments panel" aria-labelledby="instrument-title">

@@ -94,6 +94,13 @@ The Spotter’s Index layout follows the readability snapshot from
   `/state`, `/indicators`, `/map_info.json`, `/map_obj.json`,
   `/gamechat?lastId=N`, `/hudmsg?lastEvt=0&lastDmg=N`, and `/map.img?gen=N`. It does not request opponent
   endpoints. The map uses an ordinary image element at its native aspect ratio.
+  It automatically crops uniformly around the validated aircraft contacts, with
+  padding and a 4× zoom limit; an empty or unavailable feed shows the full map.
+  Contacts can include AI as the feed cannot consistently identify human players.
+  The overlaid label uses only an explicit optional `map_name` and full-map area
+  calculated from valid metre bounds (`map_min` and `map_max`). These metadata
+  can be omitted by the game, in which case the label says unavailable rather
+  than guessing. It is hidden when the map image or metadata is unavailable.
   Its overlay shows up to 200 recognized aircraft from the current game map
   feed: ownship, friendly (including green non-player aircraft), and enemy.
   Visibility depends on game mode, so the feed may not contain every enemy.

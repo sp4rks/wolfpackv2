@@ -165,6 +165,7 @@ test("local map aircraft contacts are anonymous, current, generation-bound and i
     const pilot = await context.newPage(), viewer = await context.newPage();
     const calls: Array<{ page: Page; path: string }> = [];
     let generation: number | null = null;
+    let secondMetadata: Record<string, unknown> = {};
     let failObjects = false;
     let holdObjects = false;
     let releaseObjects: (() => void) | undefined;
@@ -191,7 +192,9 @@ test("local map aircraft contacts are anonymous, current, generation-bound and i
         return;
       }
       if (path === "/map_obj.json" && failObjects) return void await route.fulfill({ status: 503, headers: { "Access-Control-Allow-Origin": "*" } });
-      const body = path === "/map_info.json" ? page === viewer || generation === null ? { valid: false } : { map_generation: generation }
+      const body = path === "/map_info.json" ? page === viewer || generation === null ? { valid: false } : generation === 1
+        ? { map_generation: generation, map_name: "<Valley>", map_min: [-1000, "500"], map_max: [3000, "2500"] }
+        : { map_generation: generation, ...secondMetadata }
         : path === "/map_obj.json" ? objects : path === "/gamechat" ? chat : { valid: false };
       await route.fulfill({ json: body, headers: { "Access-Control-Allow-Origin": "*" } });
     });
@@ -201,6 +204,8 @@ test("local map aircraft contacts are anonymous, current, generation-bound and i
     holdObjects = true; generation = 1;
     await held;
     await waitVisible(pilot, "#live-map", true);
+    expect(await pilot.locator("#map-metadata").textContent()).toBe("<Valley> · 8 km²");
+    expect(await pilot.locator("#map-name").locator("*").count()).toBe(0);
     expect(await pilot.locator(".live-contact").count()).toBe(0);
     holdObjects = false; releaseObjects!();
     await waitText(pilot, "#contacts-status", "1 ownship · 1 friendly · 1 enemy");
@@ -212,27 +217,52 @@ test("local map aircraft contacts are anonymous, current, generation-bound and i
     await waitText(pilot, "#sighting-rows", "RadioTarget");
     expect(await pilot.locator("#selected-player").textContent()).toBe("RadioTarget");
     expect(await pilot.locator("#selected-grid").textContent()).toBe("D4");
+    expect(await pilot.locator(".sightings #selected-report").count()).toBe(1);
+    expect(await pilot.locator(".map-panel.panel").count()).toBe(0);
     for (const [width, height] of [[1440, 900], [800, 600], [390, 844]]) {
       await pilot.setViewportSize({ width, height });
       const position = await pilot.evaluate(() => {
         const image = document.querySelector("#live-map")!.getBoundingClientRect();
         const marker = document.querySelector(".live-contact.friendly")!.getBoundingClientRect();
         const map = document.querySelector("#map")!.getBoundingClientRect();
-        return { x: (marker.left + marker.width / 2 - image.left) / image.width, y: (marker.top + marker.height / 2 - image.top) / image.height, ratio: image.width / image.height, width: image.width / map.width };
+        const own = document.querySelector(".live-contact.own")!.getBoundingClientRect();
+        const label = document.querySelector("#map-metadata")!.getBoundingClientRect();
+        const head = document.querySelector(".map-head")!.getBoundingClientRect();
+        return { x: (marker.left + marker.width / 2 - image.left) / image.width, y: (marker.top + marker.height / 2 - image.top) / image.height, spanX: (marker.left + marker.width / 2 - own.left - own.width / 2) / map.width, spanY: (own.top + own.height / 2 - marker.top - marker.height / 2) / map.height, ratio: image.width / image.height, width: image.width / map.width, markerWidth: marker.width, markerHeight: marker.height, label: label.toJSON(), map: map.toJSON(), head: head.toJSON(), inMap: !!document.querySelector("#map #map-metadata") };
       });
       expect(position.ratio).toBeCloseTo(2, 2);
-      expect(position.width).toBeCloseTo(1, 2);
+      expect(position.width).toBeCloseTo(1.6, 2);
       expect(position.x).toBeCloseTo(.75, 2); expect(position.y).toBeCloseTo(.25, 2);
+      expect(position.spanX).toBeCloseTo(.8, 2); expect(position.spanY).toBeCloseTo(.8, 2);
+      expect(position.markerWidth).toBe(12); expect(position.markerHeight).toBe(12);
+      expect(position.inMap).toBe(true);
+      expect(position.label.top).toBeGreaterThanOrEqual(position.map.top);
+      expect(position.label.right).toBeLessThanOrEqual(position.map.right + 1);
+      expect(position.label.top).toBeGreaterThanOrEqual(position.head.bottom);
     }
     objects = [{ type: "aircraft", icon: "Fighter", color: "#fa3200", x: .6, y: .4 }];
-    await pilot.waitForFunction(() => (document.querySelector(".live-contact.enemy") as HTMLElement | null)?.style.left === "60%");
+    await pilot.waitForFunction(() => document.querySelectorAll(".live-contact").length === 1 && Math.abs(parseFloat((document.querySelector(".live-contact.enemy") as HTMLElement).style.left) - 50) < .01);
     expect(await pilot.locator(".live-contact").count()).toBe(1);
+    expect(await pilot.locator("#live-map").evaluate(el => el.getBoundingClientRect().width / document.querySelector("#map")!.getBoundingClientRect().width)).toBeCloseTo(4, 2);
+    failObjects = true;
+    await waitText(pilot, "#contacts-status", "feed unavailable");
+    expect(await pilot.locator("#live-map").evaluate(el => el.getBoundingClientRect().width / document.querySelector("#map")!.getBoundingClientRect().width)).toBeCloseTo(1, 2);
+    failObjects = false; objects = [{ type: "aircraft", icon: "Player", x: 0, y: 1 }];
+    await waitText(pilot, "#contacts-status", "1 ownship");
+    const edge = await pilot.evaluate(() => {
+      const marker = document.querySelector(".live-contact")!.getBoundingClientRect();
+      const map = document.querySelector("#map")!.getBoundingClientRect();
+      return { left: marker.left - map.left, bottom: marker.bottom - map.bottom, overflow: getComputedStyle(document.querySelector("#map")!).overflow };
+    });
+    expect(edge.left).toBeLessThan(0); expect(edge.bottom).toBeGreaterThan(0); expect(edge.overflow).toBe("visible");
     objects = [];
     await waitText(pilot, "#contacts-status", "No recognized aircraft");
     expect(await pilot.locator(".live-contact").count()).toBe(0);
+    expect(await pilot.locator("#live-map").evaluate(el => el.getBoundingClientRect().width / document.querySelector("#map")!.getBoundingClientRect().width)).toBeCloseTo(1, 2);
     failObjects = true;
     await waitText(pilot, "#contacts-status", "feed unavailable");
     expect(await pilot.locator("#live-map").isVisible()).toBe(true);
+    expect(await pilot.locator("#live-map").evaluate(el => el.getBoundingClientRect().width / document.querySelector("#map")!.getBoundingClientRect().width)).toBeCloseTo(1, 2);
     expect(await pilot.locator("#selected-player").textContent()).toBe("RadioTarget");
     expect(await pilot.locator("#sighting-rows tr").count()).toBe(1);
     failObjects = false; objects = initialObjects;
@@ -244,9 +274,29 @@ test("local map aircraft contacts are anonymous, current, generation-bound and i
     generation = 2; objects = [];
     holdObjects = false; releaseObjects!();
     await pilot.waitForFunction(() => (document.querySelector("#live-map") as HTMLImageElement).src.endsWith("?gen=2"));
+    await waitVisible(pilot, "#map-metadata", true);
+    expect(await pilot.locator("#map-metadata").textContent()).toBe("Name unavailable · Area unavailable");
     expect(await pilot.locator(".live-contact").count()).toBe(0);
     expect(await pilot.locator("#sighting-rows tr").count()).toBe(0);
     await waitText(pilot, "#contacts-status", "No recognized aircraft");
+    secondMetadata = { map_name: "Second map" };
+    await waitText(pilot, "#map-metadata", "Second map · Area unavailable");
+    secondMetadata = { map_min: [0, 0], map_max: [2000, 3000] };
+    await waitText(pilot, "#map-metadata", "Name unavailable · 6 km²");
+    secondMetadata = { map_name: "Fixture Basin with a very long battlefield name", map_min: [0, 0], map_max: [60000, 40000] };
+    await waitText(pilot, "#map-metadata", "Fixture Basin with a very long battlefield name · 2,400 km²");
+    await pilot.setViewportSize({ width: 320, height: 640 });
+    const narrowLabel = await pilot.evaluate(() => {
+      const label = document.querySelector("#map-metadata")!, area = document.querySelector("#map-area")!, name = document.querySelector("#map-name")!;
+      const labelRect = label.getBoundingClientRect(), areaRect = area.getBoundingClientRect(), mapRect = document.querySelector("#map")!.getBoundingClientRect();
+      return { name: name.textContent, nameClipped: name.scrollWidth > name.clientWidth, area: area.textContent, areaClipped: area.scrollWidth > area.clientWidth || areaRect.right > labelRect.right, labelRight: labelRect.right, mapRight: mapRect.right, pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+    });
+    expect(narrowLabel.name).toBe("Fixture Basin with a very long battlefield name");
+    expect(narrowLabel.nameClipped).toBe(true);
+    expect(narrowLabel.area).toBe("2,400 km²");
+    expect(narrowLabel.areaClipped).toBe(false);
+    expect(narrowLabel.labelRight).toBeLessThanOrEqual(narrowLabel.mapRight + 1);
+    expect(narrowLabel.pageOverflow).toBe(false);
     objects = initialObjects;
     await waitText(pilot, "#contacts-status", "1 ownship · 1 friendly · 1 enemy");
     // Cancellation cannot publish a held old response after reconnect.
@@ -259,8 +309,11 @@ test("local map aircraft contacts are anonymous, current, generation-bound and i
     holdObjects = false; releaseObjects!();
     await waitText(pilot, "#map-status", "waiting for a valid map");
     expect(await pilot.locator(".live-contact").count()).toBe(0);
+    expect(await pilot.locator("#map-metadata").isVisible()).toBe(false);
+    expect(await pilot.locator("#map-name").textContent()).toBe("");
+    expect(await pilot.locator("#map-area").textContent()).toBe("");
   } finally { await context.close(); await instance.close(); }
-}, 60000);
+}, 90000);
 
 test("automatic game polling, reconnect and squad publishing remain independent", async () => {
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium", headless: true });
@@ -420,10 +473,16 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await waitText(pilot, "#map-status", "waiting for a valid map");
   await viewer.waitForFunction(() => !document.querySelector("#squad-rows")?.textContent?.includes("321 km/h"));
   expect(await pilot.locator("#live-map").isVisible()).toBe(false);
+  expect(await pilot.locator("#map-metadata").isVisible()).toBe(false);
+  expect(await pilot.locator("#map-name").textContent()).toBe("");
+  expect(await pilot.locator("#map-area").textContent()).toBe("");
   expect(await pilot.locator(".live-contact").count()).toBe(0);
   imageError = true; generation = 9;
   await waitText(pilot, "#map-status", "Could not load");
   expect(await pilot.locator("#live-map").isVisible()).toBe(false);
+  expect(await pilot.locator("#map-metadata").isVisible()).toBe(false);
+  expect(await pilot.locator("#map-name").textContent()).toBe("");
+  expect(await pilot.locator("#map-area").textContent()).toBe("");
   imageError = false; generation = 10; instrumentValid = true;
   await waitVisible(pilot, "#live-map", true);
   await waitText(viewer, "#squad-rows", "321 km/h");
@@ -441,6 +500,9 @@ test("automatic game polling, reconnect and squad publishing remain independent"
   await waitText(pilot, "#feed-status", "Readings are stale");
   await waitText(pilot, "#map-status", "Game map is stale");
   expect(await pilot.locator("#live-map").isVisible()).toBe(false);
+  expect(await pilot.locator("#map-metadata").isVisible()).toBe(false);
+  expect(await pilot.locator("#map-name").textContent()).toBe("");
+  expect(await pilot.locator("#map-area").textContent()).toBe("");
   expect(await pilot.locator(".live-contact").count()).toBe(0);
   expect(await pilot.locator('[data-value="ias"]').textContent()).toBe("—");
   expect(await pilot.locator("#sighting-rows").textContent()).toContain("StaleMapTarget");
