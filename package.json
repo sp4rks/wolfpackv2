@@ -8,8 +8,8 @@
   "scripts": {
     "dev": "cf dev",
     "build": "cf build",
-    "deploy": "cf deploy",
-    "check": "cf workers types && tsc -p tsconfig.json && tsc -p tsconfig.client.json && bun test test/unit.test.ts",
+    "deploy": "sh scripts/deploy.sh",
+    "check": "cf workers types && tsc -p tsconfig.json && tsc -p tsconfig.client.json && bun test test/unit.test.ts test/deploy.test.ts",
     "test:room": "bun test ./test/room.integration.ts",
     "test:browser": "bun test ./test/browser.integration.ts"
   },

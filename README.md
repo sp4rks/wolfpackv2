@@ -6,6 +6,34 @@ The Spotter’s Index UI follows the approved readability design snapshot from
 `7e3890382ae5b7a0af7b34e503e43255786f65a6` (snapshot CSS SHA `effa21d8`,
 guide SHA `a7856e77`).
 
+## Deploy
+
+Requires Bun and a Node version supported by `package.json`; live deployment
+also requires curl. For a live deploy from a fresh checkout, install dependencies
+with `bun install --frozen-lockfile`, then authenticate manually with
+`bun run cf auth login`. Alternatively, set `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` for unattended runs. The token takes priority over
+stored login; grant only the permissions needed. See
+[Cloudflare's credential guidance](https://developers.cloudflare.com/cf/ci/#provide-credentials).
+The dry run needs no Cloudflare credentials.
+
+From the project directory:
+
+```sh
+bun run deploy               # safe default: install, check, build and validate; no upload
+bun run deploy --dry-run     # same as the default
+bun run deploy --live        # publish, then check the production health endpoint
+```
+
+Each path installs frozen dependencies and runs `bun run check` (Worker types,
+TypeScript and unit tests). The separate local integration tests below are not
+part of this gate. `cf deploy` builds internally; the live path does not build
+or dry-run separately. The live path then makes a bounded GET to
+`https://wolfpack.sprks.me/api/health` and expects HTTP 200 and
+`{"message":"ok"}`. This confirms the endpoint answers, not which version is
+serving it. A smoke failure is reported after a successful deploy; it does not
+roll back or redeploy. Live mode checks that curl is available before deploying.
+
 ## Local verification
 
 Requires Bun and a Node version supported by `package.json`. Install with
@@ -82,8 +110,7 @@ not used. The squad name is a local label, not the bearer invite or room key.
   the client clears local state on disconnect and expires samples using
   `SAMPLE_LIFETIME_MS`.
 - `cloudflare.config.ts` configures the Worker, assets, SQLite-backed
-  Hibernating Durable Object and intended custom domain. The domain is
-  configuration only; deployment and provisioning are managed separately.
+  Hibernating Durable Object and intended custom domain.
 
 ## Privacy and browser limits
 
